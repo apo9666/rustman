@@ -12,9 +12,24 @@
   },
   "tauri": {
     "allowlist": {
-      "all": true,
       "http": {
-        "scope": ["http://*", "https://*"]
+        "all": true,
+        "request": true,
+        "scope": [
+          "http://*",
+          "https://*"
+        ]
+      },
+      "fs": {
+        "writeFile": true,
+        "readFile": true
+      },
+      "path": {
+        "all": true
+      },
+      "dialog": {
+        "open": true,
+        "save": true
       }
     },
     "bundle": {

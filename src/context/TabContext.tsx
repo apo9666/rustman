@@ -9,8 +9,19 @@ export interface Response {
   data: string
 }
 
+export enum MethodEnum {
+  GET = 'get',
+  POST = 'post',
+  PUT = 'put',
+  PATCH = 'patch',
+  DELETE = 'delete',
+  OPTIONS = 'options',
+  HEAD = 'head',
+  TRACE = 'trace',
+}
+
 export interface TabContent {
-  method: string
+  method: MethodEnum
   url: string
   body: string
   response?: Response
@@ -33,7 +44,7 @@ const tabInitialState: Tab = {
   label: 'New Tab',
   content: {
     url: '',
-    method: 'get',
+    method: MethodEnum.GET,
     body: ''
   }
 }

@@ -2,11 +2,11 @@ import { type ChangeEvent, useContext, type FormEvent } from 'react'
 import { ChevronDown } from 'lucide-react'
 import * as Select from '@radix-ui/react-select'
 import { Body, ResponseType, getClient } from '@tauri-apps/api/http'
-import { TabContext } from '../../context/TabContext'
+import { MethodEnum, TabContext } from '../../context/TabContext'
 
 interface RequestUrlProps {
   id: number
-  method: string
+  method: MethodEnum
   url: string
   body: string
 }
@@ -18,48 +18,71 @@ const RequestUrl: React.FC<RequestUrlProps> = ({
   body
 }) => {
   const { dispatch } = useContext(TabContext)
-  console.log(url)
 
   const request = async (): Promise<void> => {
     const client = await getClient()
+    let response
     switch (method) {
-      case 'get': {
-        const response = await client.get<string>(url, {
+      case MethodEnum.GET:
+        response = await client.get<string>(url, {
           timeout: 30,
           responseType: ResponseType.Text
         })
-        dispatch({
-          type: 'UPDATE_CONTENT',
-          payload: {
-            id,
-            content: {
-              response
-            }
-          }
-        })
-      } break
-      case 'post': {
-        const response = await client.post<string>(
+        break
+      case MethodEnum.POST:
+        response = await client.post<string>(
           url,
           Body.json(JSON.parse(body)),
           {
             responseType: ResponseType.Text
           }
         )
-        dispatch({
-          type: 'UPDATE_CONTENT',
-          payload: {
-            id,
-            content: {
-              response
-            }
+        break
+      case MethodEnum.PUT:
+        response = await client.put<string>(
+          url,
+          Body.json(JSON.parse(body)),
+          {
+            responseType: ResponseType.Text
           }
+        )
+        break
+      case MethodEnum.PATCH:
+        response = await client.post<string>(
+          url,
+          Body.json(JSON.parse(body)),
+          {
+            responseType: ResponseType.Text
+          }
+        )
+        break
+      case MethodEnum.DELETE:
+        response = await client.delete<string>(url, {
+          timeout: 30,
+          responseType: ResponseType.Text
         })
-      }
+        break
+      case MethodEnum.OPTIONS:
+        response = await client.request<string>({
+          timeout: 30,
+          responseType: ResponseType.Text,
+          method: 'OPTIONS',
+          url
+        })
+        break
     }
+    dispatch({
+      type: 'UPDATE_CONTENT',
+      payload: {
+        id,
+        content: {
+          response
+        }
+      }
+    })
   }
 
-  const handleMethodChange = (value: string): void => {
+  const handleMethodChange = (value: MethodEnum): void => {
     dispatch({
       type: 'UPDATE_CONTENT',
       payload: {
@@ -102,17 +125,23 @@ const RequestUrl: React.FC<RequestUrlProps> = ({
           <Select.Content className="overflow-hidden bg-zinc-800 rounded-l-md ">
             <Select.Viewport>
               <Select.Group>
-                <Select.Item className="hover:bg-zinc-700 px-2 py-1 text-sm cursor-pointer" value="get">
+                <Select.Item className="hover:bg-zinc-700 px-2 py-1 text-sm cursor-pointer" value={MethodEnum.GET}>
                   <Select.ItemText>GET</Select.ItemText>
                 </Select.Item>
-                <Select.Item className="hover:bg-zinc-700 px-2 py-1 text-sm cursor-pointer" value="put">
-                  <Select.ItemText>PUT</Select.ItemText>
-                </Select.Item>
-                <Select.Item className="hover:bg-zinc-700 px-2 py-1 text-sm cursor-pointer" value="post">
+                <Select.Item className="hover:bg-zinc-700 px-2 py-1 text-sm cursor-pointer" value={MethodEnum.POST}>
                   <Select.ItemText>POST</Select.ItemText>
                 </Select.Item>
-                <Select.Item className="hover:bg-zinc-700 px-2 py-1 text-sm cursor-pointer" value="delete">
+                <Select.Item className="hover:bg-zinc-700 px-2 py-1 text-sm cursor-pointer" value={MethodEnum.PUT}>
+                  <Select.ItemText>PUT</Select.ItemText>
+                </Select.Item>
+                <Select.Item className="hover:bg-zinc-700 px-2 py-1 text-sm cursor-pointer" value={MethodEnum.PATCH}>
+                  <Select.ItemText>PATCH</Select.ItemText>
+                </Select.Item>
+                <Select.Item className="hover:bg-zinc-700 px-2 py-1 text-sm cursor-pointer" value={MethodEnum.DELETE}>
                   <Select.ItemText>DELETE</Select.ItemText>
+                </Select.Item>
+                <Select.Item className="hover:bg-zinc-700 px-2 py-1 text-sm cursor-pointer" value={MethodEnum.OPTIONS}>
+                  <Select.ItemText>OPTIONS</Select.ItemText>
                 </Select.Item>
               </Select.Group>
             </Select.Viewport>
@@ -121,7 +150,7 @@ const RequestUrl: React.FC<RequestUrlProps> = ({
       </Select.Root>
       <input className="flex-grow bg-zinc-700 rounded-e-md pl-2" placeholder="Enter request URL" value={url} onChange={handleUrlChange} />
       <button type="submit" className="bg-blue-500 ml-2 p-2 rounded-md font-bold hover:bg-blue-600">Send</button>
-    </form>
+    </form >
   )
 }
 

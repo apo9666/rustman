@@ -9,8 +9,13 @@ export interface TreeNode {
   children?: TreeNode[]
 }
 
+export interface AddTreeNode extends Omit<TreeNode, 'id' | 'children'> {
+  children?: AddTreeNode[]
+}
+
 type TreeAction =
-  | { type: 'ADD_NODE', payload: { parentId: number, node: Omit<TreeNode, 'id'> } }
+  | { type: 'SET_TREE', payload: { tree: TreeNode } }
+  | { type: 'ADD_NODE', payload: { parentId: number, node: AddTreeNode } }
   | { type: 'EDIT_NODE', payload: { node: TreeNode } }
   | { type: 'REMOVE_NODE', payload: { node: TreeNode } }
 
@@ -23,30 +28,8 @@ const treeInitialState: TreeState = {
   tree: {
     id: 0,
     label: 'Root',
-    expanded: false,
+    expanded: true,
     children: [
-      {
-        id: 1,
-        label: 'GET google/abc',
-        content: {
-          body: '',
-          method: 'post',
-          url: 'https://dummyjson.com/products/1'
-        },
-        expanded: false
-      },
-      {
-        id: 2,
-        label: 'Banana',
-        expanded: false,
-        children: [
-          {
-            id: 3,
-            label: 'Get banana',
-            expanded: false
-          }
-        ]
-      }
     ]
   },
   lastTreeId: 0
@@ -68,6 +51,42 @@ const findNode = (node: TreeNode, id: number): TreeNode | undefined => {
       return result
     }
   }
+}
+
+const replaceIdsInTree = (
+  node: AddTreeNode, startId: number
+): { tree: TreeNode, lastId: number } => {
+  const usedIds = new Set<number>()
+  let currentId = startId
+
+  const getNextId = (): number => {
+    while (usedIds.has(currentId)) {
+      currentId++
+    }
+    return currentId
+  }
+
+  const traverseAndReplace = (node: AddTreeNode): TreeNode => {
+    const newId = getNextId()
+    usedIds.add(newId)
+
+    const newNode: TreeNode = {
+      ...node,
+      id: newId,
+      children: undefined
+    }
+
+    if (Array.isArray(node.children)) {
+      newNode.children = node.children.map((child) => traverseAndReplace(child))
+    }
+
+    return newNode
+  }
+
+  const newTree = traverseAndReplace(node)
+  const lastId = currentId - 1
+
+  return { tree: newTree, lastId }
 }
 
 const replaceNode = (node: TreeNode, newNode: TreeNode): TreeNode => {
@@ -104,6 +123,13 @@ const removeNode = (node: TreeNode, id: number): TreeNode => {
 
 const treeReducer = (state: TreeState, action: TreeAction): TreeState => {
   switch (action.type) {
+    case 'SET_TREE': {
+      console.log(action)
+      return {
+        ...state,
+        tree: action.payload.tree
+      }
+    }
     case 'ADD_NODE': {
       const parentNode = findNode(state.tree, action.payload.parentId)
 
@@ -115,11 +141,9 @@ const treeReducer = (state: TreeState, action: TreeAction): TreeState => {
         throw new Error('Children is undefined')
       }
 
-      const lastTreeId = state.lastTreeId + 1
-      const newNode: TreeNode = {
-        ...action.payload.node,
-        id: lastTreeId
-      }
+      const { tree: newNode, lastId: lastTreeId } = replaceIdsInTree(
+        action.payload.node, state.lastTreeId + 1
+      )
 
       const newParentNode = {
         ...parentNode,
@@ -128,7 +152,7 @@ const treeReducer = (state: TreeState, action: TreeAction): TreeState => {
           newNode
         ]
       }
-
+      console.log(lastTreeId)
       const newTree = replaceNode(state.tree, newParentNode)
 
       return {

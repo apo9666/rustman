@@ -1,47 +1,31 @@
 import AceEditor from 'react-ace'
 import { Braces } from 'lucide-react'
-import { useContext } from 'react'
-import { TabContext } from '../../context/TabContext'
+import { type State, useHookstate } from '@hookstate/core'
 
 import 'ace-builds/src-noconflict/mode-json'
 import 'ace-builds/src-noconflict/theme-twilight'
 import 'ace-builds/src-noconflict/ext-language_tools'
 
 interface BodyProps {
-  id: number
-  body: string
+  body: State<string>
 }
 
-const Body: React.FC<BodyProps> = ({ id, body }) => {
-  const { dispatch } = useContext(TabContext)
+const Body: React.FC<BodyProps> = (props) => {
+  const state = useHookstate(props.body)
   const format = (): void => {
     try {
-      dispatch({
-        type: 'UPDATE_CONTENT',
-        payload: {
-          id,
-          content: {
-            body: JSON.stringify(
-              JSON.parse(body),
-              null,
-              2
-            )
-          }
-        }
-      })
+      state.set(body =>
+        JSON.stringify(
+          JSON.parse(body),
+          null,
+          2
+        )
+      )
     } catch (e) { /* empty */ }
   }
 
   const handleChange = (newBody: string): void => {
-    dispatch({
-      type: 'UPDATE_CONTENT',
-      payload: {
-        id,
-        content: {
-          body: newBody
-        }
-      }
-    })
+    state.set(newBody)
   }
 
   return (
@@ -53,7 +37,7 @@ const Body: React.FC<BodyProps> = ({ id, body }) => {
           theme="twilight"
           onChange={handleChange}
           name="UNIQUE_ID_OF_DIV"
-          value={body}
+          value={state.get()}
           editorProps={{ $blockScrolling: true }}
           width="100%"
           height="100%"

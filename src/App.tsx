@@ -1,14 +1,13 @@
-import { useContext, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { readTextFile, writeFile } from '@tauri-apps/api/fs'
 import { save, open } from '@tauri-apps/api/dialog'
 import { listen } from '@tauri-apps/api/event'
 import YAML from 'yaml'
-import { OpenAPIObject, OpenApiBuilder, type PathItemObject, type RequestBodyObject, type ReferenceObject } from 'openapi3-ts/oas31'
-import { TreeContext } from './context/TreeContext'
-import DialogDemo from './DialogDemo'
+import { OpenApiBuilder, type PathItemObject, type RequestBodyObject, type ReferenceObject } from 'openapi3-ts/oas31'
 import Section from './Section'
 import Side from './Side'
-import { MethodEnum, type TabContent } from './context/TabContext'
+import { MethodEnum, type TabContent, treeState } from './state'
+import { useHookstate } from '@hookstate/core'
 
 const containBody = (body?: RequestBodyObject | ReferenceObject): body is RequestBodyObject => {
   if (body === undefined) {
@@ -73,13 +72,20 @@ const convertContent = (
   return {
     url: server.replace(/\/$/, '') + key,
     method,
-    body
+    body,
+    response: {
+      data: '',
+      headers: {},
+      ok: true,
+      rawHeaders: {},
+      status: 200,
+      url: ''
+    }
   }
 }
 
 const App: React.FC = () => {
-  const { dispatch } = useContext(TreeContext)
-  const [openApi, setOpenApi] = useState(new OpenApiBuilder())
+  const state = useHookstate(treeState)
   const [menuPayload, setMenuPayload] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -106,25 +112,27 @@ const App: React.FC = () => {
         return
       }
 
-      dispatch({
-        type: 'ADD_NODE',
-        payload: {
-          parentId: 0,
-          node: {
-            expanded: true,
-            label: o.info.title,
-            children: o.servers.map(server => ({
+      let id = state.lastTreeId.get()
+
+      state.tree.children.set(children => [
+        ...(children ?? []),
+        {
+          id: id++,
+          expanded: true,
+          label: o.info.title,
+          children: o.servers?.map(server => ({
+            id: id++,
+            expanded: false,
+            label: server.url,
+            children: keys.map(([key, value]) => ({
+              id: id++,
               expanded: false,
-              label: server.url,
-              children: keys.map(([key, value]) => ({
-                expanded: false,
-                label: key,
-                content: convertContent(server.url, key, value)
-              }))
+              label: key,
+              content: convertContent(server.url, key, value)
             }))
-          }
+          }))
         }
-      })
+      ])
     } catch (e) {
       console.log(e)
     }

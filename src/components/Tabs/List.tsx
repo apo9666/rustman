@@ -1,21 +1,42 @@
-import { useContext, type MouseEvent } from 'react'
+import { type MouseEvent } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import { Plus } from 'lucide-react'
-import { TabContext } from '../../context/TabContext'
+import { useHookstate } from '@hookstate/core'
+import { MethodEnum, tabState } from '../../state'
 
 interface TabsListProps {
   children?: React.ReactNode
 }
 
 const TabsList: React.FC<TabsListProps> = ({ children }) => {
-  const { dispatch } = useContext(TabContext)
+  const state = useHookstate(tabState)
 
   const addTab = (e: MouseEvent<SVGSVGElement>): void => {
     e.preventDefault()
 
-    dispatch({
-      type: 'ADD_TAB'
-    })
+    const lastTabId = state.lastTabId.get() + 1
+    state.lastTabId.set(lastTabId)
+    state.activeTabId.set(lastTabId)
+    state.tabs.set((tabs) => [
+      ...tabs,
+      {
+        id: lastTabId,
+        label: 'New Tab',
+        content: {
+          url: '',
+          method: MethodEnum.GET,
+          body: '',
+          response: {
+            data: '',
+            headers: {},
+            ok: true,
+            rawHeaders: {},
+            status: 200,
+            url: ''
+          }
+        }
+      }
+    ])
   }
 
   return (

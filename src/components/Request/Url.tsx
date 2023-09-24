@@ -1,28 +1,30 @@
-import { type ChangeEvent, useContext, type FormEvent } from 'react'
+import { type ChangeEvent, type FormEvent } from 'react'
 import { ChevronDown } from 'lucide-react'
 import * as Select from '@radix-ui/react-select'
-import { Body, ResponseType, getClient } from '@tauri-apps/api/http'
-import { MethodEnum, TabContext } from '../../context/TabContext'
+import { useHookstate, type State } from '@hookstate/core'
+import { Body, ResponseType, getClient, type Response } from '@tauri-apps/api/http'
+import { MethodEnum, type TabContent } from '../../state'
 
 interface RequestUrlProps {
-  id: number
-  method: MethodEnum
-  url: string
-  body: string
+  content: State<TabContent>
 }
 
-const RequestUrl: React.FC<RequestUrlProps> = ({
-  id,
-  method,
-  url,
-  body
-}) => {
-  const { dispatch } = useContext(TabContext)
+const RequestUrl: React.FC<RequestUrlProps> = (props) => {
+  const content = useHookstate(props.content)
 
   const request = async (): Promise<void> => {
     const client = await getClient()
-    let response
-    switch (method) {
+    let response: Response<string> = {
+      data: '',
+      headers: {},
+      ok: true,
+      rawHeaders: {},
+      status: 200,
+      url: ''
+    }
+    const url = content.url.get()
+    const body = content.body.get()
+    switch (content.method.get()) {
       case MethodEnum.GET:
         response = await client.get<string>(url, {
           timeout: 30,
@@ -71,50 +73,34 @@ const RequestUrl: React.FC<RequestUrlProps> = ({
         })
         break
     }
-    dispatch({
-      type: 'UPDATE_CONTENT',
-      payload: {
-        id,
-        content: {
-          response
-        }
-      }
+    console.log(response)
+
+    content.response.set({
+      url: response.url,
+      status: response.status,
+      ok: response.ok,
+      headers: response.headers,
+      rawHeaders: response.rawHeaders,
+      data: response.data
     })
   }
 
   const handleMethodChange = (value: MethodEnum): void => {
-    dispatch({
-      type: 'UPDATE_CONTENT',
-      payload: {
-        id,
-        content: {
-          method: value
-        }
-      }
-    })
+    content.method.set(value)
   }
 
   const handleUrlChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    dispatch({
-      type: 'UPDATE_CONTENT',
-      payload: {
-        id,
-        content: {
-          url: e.target.value
-        }
-      }
-    })
+    content.url.set(e.target.value)
   }
 
   const handleSend = (e: FormEvent<HTMLFormElement>): void => {
-    console.log('chamou send')
     e.preventDefault()
     request().catch(error => { console.error(error) })
   }
 
   return (
     <form className="p-2 flex" onSubmit={handleSend}>
-      <Select.Root defaultValue={method} onValueChange={handleMethodChange}>
+      <Select.Root defaultValue={content.method.get()} onValueChange={handleMethodChange}>
         <Select.Trigger className="inline-flex items-center justify-center rounded-l-md p-2 gap-2 bg-zinc-800 hover:bg-zinc-700">
           <Select.Value />
           <Select.Icon>
@@ -148,7 +134,7 @@ const RequestUrl: React.FC<RequestUrlProps> = ({
           </Select.Content>
         </Select.Portal>
       </Select.Root>
-      <input className="flex-grow bg-zinc-700 rounded-e-md pl-2" placeholder="Enter request URL" value={url} onChange={handleUrlChange} />
+      <input className="flex-grow bg-zinc-700 rounded-e-md pl-2" placeholder="Enter request URL" value={content.url.get()} onChange={handleUrlChange} />
       <button type="submit" className="bg-blue-500 ml-2 p-2 rounded-md font-bold hover:bg-blue-600">Send</button>
     </form >
   )

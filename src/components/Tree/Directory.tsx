@@ -1,11 +1,11 @@
 import { useContext } from 'react'
 import * as Collapsible from '@radix-ui/react-collapsible'
 import { ChevronRight, ChevronDown, Folder, ArrowRight } from 'lucide-react'
-import { TreeContext, type TreeNode } from '../../context/TreeContext'
-import { TabContext } from '../../context/TabContext'
+import { type State, useHookstate } from '@hookstate/core'
+import { type TreeNode, tabState } from '../../state'
 
 interface TreeDirectoryProps {
-  node: TreeNode
+  node: State<TreeNode>
 }
 
 const colors: Record<string, string> = {
@@ -20,47 +20,45 @@ const short: Record<string, string> = {
 }
 
 const TreeDirectory: React.FC<TreeDirectoryProps> = ({ node }) => {
-  const { dispatch } = useContext(TreeContext)
-  const { dispatch: tabDispatch } = useContext(TabContext)
+  const treeState = useHookstate(node)
+  const tab = useHookstate(tabState)
 
   const handleOpenChange = (open: boolean): void => {
-    dispatch({
-      type: 'EDIT_NODE',
-      payload: {
-        node: {
-          ...node,
-          expanded: open
-        }
-      }
-    })
+    treeState.expanded.set(open)
   }
 
   const handleOnClick = (): void => {
-    if (node.content !== undefined) {
-      tabDispatch({
-        type: 'ADD_TAB',
-        payload: {
-          label: node.label,
-          content: node.content
-        }
-      })
+    const content = node.content.get()
+    if (content == null) {
+      return
     }
+
+    tab.tabs.set(tabs => ([
+      ...tabs,
+      {
+        id: tab.lastTabId.get() + 1,
+        content: {
+          ...content
+        },
+        label: node.label.get()
+      }
+    ]))
   }
 
-  if (node.children !== undefined) {
+  if (node.children.ornull !== undefined) {
     return (
-      <Collapsible.Root open={node.expanded} onOpenChange={handleOpenChange}>
+      <Collapsible.Root open={node.expanded.get()} onOpenChange={handleOpenChange}>
         <a className="flex items-center gap-1 px-5 py-1">
           <span className="flex items-center w-10">
             <Collapsible.Trigger asChild>
-              {node.expanded ? (<ChevronDown />) : (<ChevronRight />)}
+              {node.expanded.get() ? (<ChevronDown />) : (<ChevronRight />)}
             </Collapsible.Trigger>
             <Folder className="ml-3" />
           </span>
-          <span className="truncate hover:cursor-default">{node.label}</span>
+          <span className="truncate hover:cursor-default">{node.label.get()}</span>
         </a>
         <Collapsible.Content className="pl-3">
-          {node.children.map(child => <TreeDirectory key={child.id} node={child} />)}
+          {node.children.ornull?.map(child => <TreeDirectory key={child.id.get()} node={child} />)}
         </Collapsible.Content>
       </Collapsible.Root>
     )
@@ -70,7 +68,7 @@ const TreeDirectory: React.FC<TreeDirectoryProps> = ({ node }) => {
       {/* <span className="flex items-center">
         <span className={`text-xs ${colors[node.label] !== undefined ? 'text-' + colors[node.label] + '-600' : ''} w-10 text-right`}>{short[node.label] ?? node.label}</span>
       </span> */}
-      <span className="w-96 truncate hover:cursor-default" title={node.label}>{node.label}</span>
+      <span className="w-96 truncate hover:cursor-default" title={node.label.get()}>{node.label.get()}</span>
       <ArrowRight />
     </a>
   )

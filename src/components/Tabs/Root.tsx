@@ -1,22 +1,19 @@
 import * as Tabs from '@radix-ui/react-tabs'
-import { useContext } from 'react'
-import { TabContext } from '../../context/TabContext'
+import { useHookstate } from '@hookstate/core'
+import { tabState } from '../../state'
 
 interface TabsRootProps {
   children?: React.ReactNode
 }
 const TabsRoot: React.FC<TabsRootProps> = ({ children }) => {
-  const { state: { activeTabId }, dispatch } = useContext(TabContext)
+  const state = useHookstate(tabState)
 
   const handleValueChange = (value: string): void => {
-    dispatch({
-      type: 'SET_ACTIVE_TAB',
-      payload: parseInt(value, 10)
-    })
+    state.activeTabId.set(parseInt(value, 10))
   }
 
   return (
-    <Tabs.Root className="flex flex-col h-full text-xs" value={activeTabId.toString()} onValueChange={handleValueChange}>
+    <Tabs.Root className="flex flex-col h-full text-xs" value={state.activeTabId.get().toString()} onValueChange={handleValueChange}>
       {children}
     </Tabs.Root>
   )

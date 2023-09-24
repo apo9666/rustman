@@ -1,9 +1,9 @@
 import Tree from './components/Tree'
-import { useContext } from 'react'
-import { TreeContext } from './context/TreeContext'
+import { useHookstate } from '@hookstate/core'
+import { treeState } from './state'
 
 const Side: React.FC = () => {
-  const { state } = useContext(TreeContext)
+  const state = useHookstate(treeState)
 
   return (
     <Tree.Root>

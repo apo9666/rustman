@@ -1,7 +1,7 @@
-import { useContext, useState } from 'react'
+import { useState } from 'react'
 import { ArrowBigDown, ArrowBigUp } from 'lucide-react'
 import ParamRow from './ParamRow'
-import { TabContext } from '../../context/TabContext'
+import { type State, useHookstate } from '@hookstate/core'
 
 export interface Param {
   id: number
@@ -18,16 +18,13 @@ const emptyParam: Param = {
 }
 
 interface ParamsProps {
-  id: number
-  url: string
+  url: State<string>
 }
 
-const Params: React.FC<ParamsProps> = ({ id, url }) => {
+const Params: React.FC<ParamsProps> = (props) => {
+  const url = useHookstate(props.url)
   const [params, setParams] = useState<Param[]>([emptyParam])
   const [lastParamId, setLastParamId] = useState(0)
-  const {
-    dispatch
-  } = useContext(TabContext)
 
   const addParam = (): void => {
     const newParam = {
@@ -52,12 +49,12 @@ const Params: React.FC<ParamsProps> = ({ id, url }) => {
   }
 
   const importParams = (): void => {
-    if (url.trim() === '') {
+    if (url.get().trim() === '') {
       return
     }
 
     try {
-      const newUrl = new URL(url)
+      const newUrl = new URL(url.get())
       let count = lastParamId + 1
       const newParams: Param[] = []
 
@@ -83,26 +80,18 @@ const Params: React.FC<ParamsProps> = ({ id, url }) => {
   }
 
   const exportParams = (): void => {
-    if (url.trim() === '') {
+    if (url.get().trim() === '') {
       return
     }
 
     try {
-      const newUrl = new URL(url.split('?')[0])
+      const newUrl = new URL(url.get().split('?')[0])
 
       params
         .filter(param => param.key.trim() !== '' || !param.enable)
         .forEach(param => { newUrl.searchParams.set(param.key, param.value) })
 
-      dispatch({
-        type: 'UPDATE_CONTENT',
-        payload: {
-          id,
-          content: {
-            url: newUrl.toString()
-          }
-        }
-      })
+      url.set(newUrl.toString())
     } catch (e) { /* empty */ }
   }
 

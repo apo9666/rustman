@@ -1,14 +1,16 @@
 import * as Tabs from '@radix-ui/react-tabs'
-import { type Tab } from '../../context/TabContext'
+import { useHookstate, type State } from '@hookstate/core'
+import { type Tab } from '../../state'
 
 interface TabsContentProps {
-  tab: Tab
+  tab: State<Tab>
   children?: React.ReactNode
 }
 
 const TabsContent: React.FC<TabsContentProps> = ({ tab, children }) => {
+  const state = useHookstate(tab)
   return (
-    <Tabs.Content key={tab.id} className="flex-grow flex-shrink-0 overflow-y-auto" value={tab.id.toString()}>
+    <Tabs.Content key={state.id.get()} className="flex-grow flex-shrink-0 overflow-y-auto" value={state.id.get().toString()}>
       {children}
     </Tabs.Content>
   )

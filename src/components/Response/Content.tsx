@@ -1,35 +1,28 @@
 import AceEditor from 'react-ace'
 import { Braces } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { type State, useHookstate } from '@hookstate/core'
 
 import 'ace-builds/src-noconflict/mode-json'
 import 'ace-builds/src-noconflict/theme-twilight'
 import 'ace-builds/src-noconflict/ext-language_tools'
-import { type Response } from '../../context/TabContext'
 
 interface ResponseContentProps {
-  response?: Response
+  data: State<string>
 }
 
-const ResponseContent: React.FC<ResponseContentProps> = ({ response }) => {
-  const [body, setBody] = useState(response?.data ?? '')
-
-  useEffect(() => {
-    setBody(response?.data ?? '')
-  }, [response?.data])
+const ResponseContent: React.FC<ResponseContentProps> = (props) => {
+  const state = useHookstate(props.data)
 
   const format = (): void => {
-    if (response === undefined) {
+    if (state.get() === undefined) {
       return
     }
     try {
-      setBody(
-        JSON.stringify(
-          JSON.parse(body),
-          null,
-          2
-        )
-      )
+      state.set(data => JSON.stringify(
+        JSON.parse(data),
+        null,
+        2
+      ))
     } catch (e) { /* empty */ }
   }
 
@@ -42,7 +35,7 @@ const ResponseContent: React.FC<ResponseContentProps> = ({ response }) => {
           mode="json"
           theme="twilight"
           name="UNIQUE_ID_OF_DIV"
-          value={body}
+          value={state.get()}
           editorProps={{ $blockScrolling: true }}
           width="100%"
           height="100%"

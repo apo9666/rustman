@@ -1,72 +1,65 @@
 import { type ChangeEvent } from 'react'
 import { Trash2 } from 'lucide-react'
-
-export interface Header {
-  id: number
-  enable: boolean
-  key: string
-  value: string
-}
+import { type Header } from '../../state'
+import { type State, useHookstate } from '@hookstate/core'
 
 interface HeaderRowProps {
-  param: Header
-  lastParamId: number
-  addParam: () => void
-  removeParam: (param: Header) => void
-  saveParam: (param: Header) => void
+  index: number
+  header: State<Header>
+  addHeader: () => void
+  removeHeader: (removeIndex: number) => void
+  last: boolean
 }
 
-const HeaderRow: React.FC<HeaderRowProps> = ({
-  param,
-  lastParamId,
-  addParam,
-  removeParam,
-  saveParam
-}) => {
+const HeaderRow: React.FC<HeaderRowProps> = (props) => {
+  const state = useHookstate(props.header)
+
   const handleEnableChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    saveParam({
-      ...param,
+    state.set(header => ({
+      ...header,
       enable: e.target.checked
-    })
+    }))
   }
 
   const handleKeyChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    saveParam({
-      ...param,
+    state.set(header => ({
+      ...header,
       key: e.target.value
-    })
+    }))
 
-    if (param.id === lastParamId) {
-      addParam()
+    if (props.last) {
+      props.addHeader()
     }
   }
 
   const handleValueChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    saveParam({
-      ...param,
+    state.set(header => ({
+      ...header,
       value: e.target.value
-    })
+    }))
 
-    if (param.id === lastParamId) {
-      addParam()
+    if (props.last) {
+      props.addHeader()
     }
   }
 
   return (
     <tr className="border-collapse">
       <td className="border-zinc-700 border p-2 text-center w-10" >
-        <input type="checkbox" onChange={handleEnableChange} checked={param.enable} />
+        <input type="checkbox" onChange={handleEnableChange} checked={state.enable.get()} />
       </td>
       <td className="border-zinc-700 border">
-        <input type="text" className="bg-transparent w-full p-2" onChange={handleKeyChange} value={param.key} />
+        <input type="text" className="bg-transparent w-full p-2" onChange={handleKeyChange} value={state.key.get()} />
       </td>
       <td className="border-zinc-700 border">
-        <input type="text" className="bg-transparent w-full p-2" onChange={handleValueChange} value={param.value} />
+        <input type="text" className="bg-transparent w-full p-2" onChange={handleValueChange} value={state.nested('value').get()} />
       </td>
       <td className="border-zinc-700 border p-2 text-center w-10">
-        <button onClick={() => { removeParam(param) }}>
-          <Trash2 size={14} className="cursor-pointer hover:text-zinc-500" />
-        </button>
+        {!props.last &&
+          <button onClick={() => { props.removeHeader(props.index) }}>
+            <Trash2 size={14} className="cursor-pointer hover:text-zinc-500" />
+          </button>
+        }
       </td>
     </tr>
   )

@@ -53,10 +53,25 @@ export enum MethodEnum {
   TRACE = 'trace',
 }
 
+export interface Header {
+  id: number
+  enable: boolean
+  key: string
+  value: string
+}
+
+export const headerInitialState: Header = {
+  id: 0,
+  enable: true,
+  key: '',
+  value: ''
+}
+
 export interface TabContent {
   method: MethodEnum
   url: string
   body: string
+  headers: Header[]
   response: Response
 }
 
@@ -72,13 +87,22 @@ interface TabState {
   tabs: Tab[]
 }
 
-const tabInitialState: Tab = {
+export const tabInitialState: Tab = {
   id: 0,
   label: 'New Tab',
   content: {
     url: '',
+    headers: [headerInitialState],
     method: MethodEnum.GET,
-    body: ''
+    body: '',
+    response: {
+      data: '',
+      headers: {},
+      ok: true,
+      rawHeaders: {},
+      status: 200,
+      url: ''
+    }
   }
 }
 

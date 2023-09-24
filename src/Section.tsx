@@ -6,7 +6,7 @@ import { tabState } from './state'
 
 const Section: React.FC = () => {
   const state = useHookstate(tabState)
-
+  console.log(state.tabs.map(({ id }) => id.get()).join(','))
   return (
     <Tabs.Root>
       <Tabs.List>
@@ -20,7 +20,7 @@ const Section: React.FC = () => {
             <Request.Root>
               <Request.Title title={tab.label.get()} />
               <hr className="border-zinc-600" />
-              <Request.Url content={tab.content} />
+              <Request.Url content={tab.content} key={tab.id.get()} />
               <Request.Content content={tab.content} />
             </Request.Root>
             <Response.Root>

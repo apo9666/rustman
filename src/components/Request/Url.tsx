@@ -1,12 +1,25 @@
 import { type ChangeEvent, type FormEvent } from 'react'
 import { ChevronDown } from 'lucide-react'
 import * as Select from '@radix-ui/react-select'
-import { useHookstate, type State } from '@hookstate/core'
+import { useHookstate, type State, type ImmutableArray } from '@hookstate/core'
 import { Body, ResponseType, getClient, type Response } from '@tauri-apps/api/http'
-import { MethodEnum, type TabContent } from '../../state'
+import { type Header, MethodEnum, type TabContent } from '../../state'
 
 interface RequestUrlProps {
   content: State<TabContent>
+}
+
+const convertHeaders = (headers: ImmutableArray<Header>): Record<string, any> | undefined => {
+  const enabledHeaders = headers.filter(({ enable, key }) => enable && key !== '')
+
+  if (enabledHeaders.length === 0) {
+    return undefined
+  }
+
+  return enabledHeaders.reduce((prev, curr) => ({
+    ...prev,
+    [curr.key]: curr.value
+  }), {})
 }
 
 const RequestUrl: React.FC<RequestUrlProps> = (props) => {
@@ -28,7 +41,8 @@ const RequestUrl: React.FC<RequestUrlProps> = (props) => {
       case MethodEnum.GET:
         response = await client.get<string>(url, {
           timeout: 30,
-          responseType: ResponseType.Text
+          responseType: ResponseType.Text,
+          headers: convertHeaders(content.headers.get())
         })
         break
       case MethodEnum.POST:
@@ -36,7 +50,8 @@ const RequestUrl: React.FC<RequestUrlProps> = (props) => {
           url,
           Body.json(JSON.parse(body)),
           {
-            responseType: ResponseType.Text
+            responseType: ResponseType.Text,
+            headers: convertHeaders(content.headers.get())
           }
         )
         break
@@ -45,7 +60,8 @@ const RequestUrl: React.FC<RequestUrlProps> = (props) => {
           url,
           Body.json(JSON.parse(body)),
           {
-            responseType: ResponseType.Text
+            responseType: ResponseType.Text,
+            headers: convertHeaders(content.headers.get())
           }
         )
         break
@@ -54,14 +70,16 @@ const RequestUrl: React.FC<RequestUrlProps> = (props) => {
           url,
           Body.json(JSON.parse(body)),
           {
-            responseType: ResponseType.Text
+            responseType: ResponseType.Text,
+            headers: convertHeaders(content.headers.get())
           }
         )
         break
       case MethodEnum.DELETE:
         response = await client.delete<string>(url, {
           timeout: 30,
-          responseType: ResponseType.Text
+          responseType: ResponseType.Text,
+          headers: convertHeaders(content.headers.get())
         })
         break
       case MethodEnum.OPTIONS:
@@ -69,7 +87,8 @@ const RequestUrl: React.FC<RequestUrlProps> = (props) => {
           timeout: 30,
           responseType: ResponseType.Text,
           method: 'OPTIONS',
-          url
+          url,
+          headers: convertHeaders(content.headers.get())
         })
         break
     }

@@ -1,4 +1,3 @@
-import { useContext } from 'react'
 import * as Collapsible from '@radix-ui/react-collapsible'
 import { ChevronRight, ChevronDown, Folder, ArrowRight } from 'lucide-react'
 import { type State, useHookstate } from '@hookstate/core'

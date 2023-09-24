@@ -2,7 +2,7 @@ import { type MouseEvent } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import { Plus } from 'lucide-react'
 import { useHookstate } from '@hookstate/core'
-import { tabInitialState, tabState } from '../../state'
+import { MethodEnum, tabState } from '../../state'
 
 interface TabsListProps {
   children?: React.ReactNode
@@ -14,14 +14,30 @@ const TabsList: React.FC<TabsListProps> = ({ children }) => {
   const addTab = (e: MouseEvent<SVGSVGElement>): void => {
     e.preventDefault()
 
-    const lastTabId = state.lastTabId.get() + 1
-    state.lastTabId.set(lastTabId)
-    state.activeTabId.set(lastTabId)
+    state.activeTabId.set(state.tabs.length)
     state.tabs.merge([
       {
-        ...tabInitialState,
-        id: lastTabId,
-        label: lastTabId.toString()
+        content: {
+          url: '',
+          headers: [
+            {
+              enable: true,
+              key: '',
+              value: ''
+            }
+          ],
+          method: MethodEnum.GET,
+          body: '',
+          response: {
+            data: '',
+            headers: {},
+            ok: true,
+            rawHeaders: {},
+            status: 200,
+            url: ''
+          }
+        },
+        label: 'New'
       }
     ])
   }

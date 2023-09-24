@@ -73,6 +73,13 @@ const convertContent = (
     url: server.replace(/\/$/, '') + key,
     method,
     body,
+    headers: [
+      {
+        enable: true,
+        key: '',
+        value: ''
+      }
+    ],
     response: {
       data: '',
       headers: {},

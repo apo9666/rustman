@@ -35,13 +35,13 @@ const TreeDirectory: React.FC<TreeDirectoryProps> = ({ node }) => {
     tab.tabs.set(tabs => ([
       ...tabs,
       {
-        id: tab.lastTabId.get() + 1,
         content: {
           ...content
         },
         label: node.label.get()
       }
     ]))
+    tab.activeTabId.set(tab.tabs.length - 1)
   }
 
   if (node.children.ornull !== undefined) {

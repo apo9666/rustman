@@ -7,6 +7,7 @@ import { type Header, MethodEnum, type TabContent } from '../../state'
 
 interface RequestUrlProps {
   content: State<TabContent>
+  index: number
 }
 
 const convertHeaders = (headers: ImmutableArray<Header>): Record<string, any> | undefined => {
@@ -109,6 +110,7 @@ const RequestUrl: React.FC<RequestUrlProps> = (props) => {
   }
 
   const handleUrlChange = (e: ChangeEvent<HTMLInputElement>): void => {
+    console.log(props.index)
     content.url.set(e.target.value)
   }
 

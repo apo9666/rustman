@@ -54,14 +54,12 @@ export enum MethodEnum {
 }
 
 export interface Header {
-  id: number
   enable: boolean
   key: string
   value: string
 }
 
 export const headerInitialState: Header = {
-  id: 0,
   enable: true,
   key: '',
   value: ''
@@ -76,19 +74,16 @@ export interface TabContent {
 }
 
 export interface Tab {
-  id: number
   label: string
   content: TabContent
 }
 
 interface TabState {
   activeTabId: number
-  lastTabId: number
   tabs: Tab[]
 }
 
 export const tabInitialState: Tab = {
-  id: 0,
   label: 'New Tab',
   content: {
     url: '',
@@ -108,7 +103,6 @@ export const tabInitialState: Tab = {
 
 const tabsInitialState: TabState = {
   activeTabId: 0,
-  lastTabId: 0,
   tabs: [tabInitialState]
 }
 

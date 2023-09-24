@@ -1,6 +1,6 @@
 import { type State, useHookstate } from '@hookstate/core'
 import HeaderRow from './HeaderRow'
-import { type Header, headerInitialState } from '../../state'
+import { type Header } from '../../state'
 
 interface HeaderTableProps {
   headers: State<Header[]>
@@ -10,9 +10,13 @@ const HeaderTable: React.FC<HeaderTableProps> = (props) => {
   const state = useHookstate(props.headers)
 
   const addHeader = (): void => {
-    state.merge(
-      [headerInitialState]
-    )
+    state.merge([
+      {
+        enable: true,
+        key: '',
+        value: ''
+      }
+    ])
   }
 
   const removeHeader = (removeIndex: number): void => {

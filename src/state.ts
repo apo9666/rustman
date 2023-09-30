@@ -2,7 +2,6 @@ import { hookstate } from '@hookstate/core'
 import { type OpenAPIObject } from 'openapi3-ts/oas31'
 
 export interface TreeNode {
-  id: number
   label: string
   content?: TabContent
   expanded: boolean
@@ -11,7 +10,6 @@ export interface TreeNode {
 
 interface TreeState {
   tree: TreeNode
-  lastTreeId: number
 }
 
 const init: OpenAPIObject = {
@@ -24,13 +22,11 @@ const init: OpenAPIObject = {
 
 const treeInitialState: TreeState = {
   tree: {
-    id: 0,
     label: 'Root',
     expanded: true,
     children: [
     ]
-  },
-  lastTreeId: 0
+  }
 }
 
 export interface Response {

@@ -15,17 +15,11 @@ const HeaderRow: React.FC<HeaderRowProps> = (props) => {
   const state = useHookstate(props.header)
 
   const handleEnableChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    state.set(header => ({
-      ...header,
-      enable: e.target.checked
-    }))
+    state.enable.set(e.target.checked)
   }
 
   const handleKeyChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    state.set(header => ({
-      ...header,
-      key: e.target.value
-    }))
+    state.key.set(e.target.value)
 
     if (props.last) {
       props.addHeader()
@@ -33,10 +27,7 @@ const HeaderRow: React.FC<HeaderRowProps> = (props) => {
   }
 
   const handleValueChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    state.set(header => ({
-      ...header,
-      value: e.target.value
-    }))
+    state.nested('value').set(e.target.value)
 
     if (props.last) {
       props.addHeader()

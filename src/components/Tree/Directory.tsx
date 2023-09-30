@@ -32,15 +32,29 @@ const TreeDirectory: React.FC<TreeDirectoryProps> = ({ node }) => {
       return
     }
 
-    tab.tabs.set(tabs => ([
-      ...tabs,
+    tab.tabs.merge([
       {
         content: {
-          ...content
+          body: content.body,
+          headers: content.headers.map(header => ({
+            enable: header.enable,
+            key: header.key,
+            value: header.value
+          })),
+          method: content.method,
+          response: {
+            data: '',
+            headers: {},
+            ok: true,
+            rawHeaders: {},
+            status: 200,
+            url: ''
+          },
+          url: content.url
         },
         label: node.label.get()
       }
-    ]))
+    ])
     tab.activeTabId.set(tab.tabs.length - 1)
   }
 
@@ -57,7 +71,7 @@ const TreeDirectory: React.FC<TreeDirectoryProps> = ({ node }) => {
           <span className="truncate hover:cursor-default">{node.label.get()}</span>
         </a>
         <Collapsible.Content className="pl-3">
-          {node.children.ornull?.map(child => <TreeDirectory key={child.id.get()} node={child} />)}
+          {node.children.ornull?.map((child, index) => <TreeDirectory key={index} node={child} />)}
         </Collapsible.Content>
       </Collapsible.Root>
     )

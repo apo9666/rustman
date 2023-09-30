@@ -119,20 +119,14 @@ const App: React.FC = () => {
         return
       }
 
-      let id = state.lastTreeId.get()
-
-      state.tree.children.set(children => [
-        ...(children ?? []),
+      state.tree.children.merge([
         {
-          id: id++,
           expanded: true,
           label: o.info.title,
           children: o.servers?.map(server => ({
-            id: id++,
             expanded: false,
             label: server.url,
             children: keys.map(([key, value]) => ({
-              id: id++,
               expanded: false,
               label: key,
               content: convertContent(server.url, key, value)

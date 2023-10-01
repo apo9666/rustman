@@ -41,6 +41,11 @@ const TreeDirectory: React.FC<TreeDirectoryProps> = ({ node }) => {
             key: header.key,
             value: header.value
           })),
+          params: content.params.map(param => ({
+            enable: param.enable,
+            key: param.key,
+            value: param.value
+          })),
           method: content.method,
           response: {
             data: '',

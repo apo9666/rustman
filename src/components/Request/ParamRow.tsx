@@ -1,53 +1,50 @@
 import { type ChangeEvent } from 'react'
 import { Trash2 } from 'lucide-react'
-
-export interface Param {
-  id: number
-  enable: boolean
-  key: string
-  value: string
-}
+import { useHookstate, type State } from '@hookstate/core'
+import { type Param } from '../../state'
 
 interface ParamRowProps {
-  param: Param
-  lastParamId: number
+  index: number
+  param: State<Param>
   addParam: () => void
-  removeParam: (param: Param) => void
-  saveParam: (param: Param) => void
+  removeParam: (removeIndex: number) => void
+  changeParam: () => void
+  last: boolean
 }
 
 const ParamRow: React.FC<ParamRowProps> = ({
+  index,
   param,
-  lastParamId,
   addParam,
   removeParam,
-  saveParam
+  changeParam,
+  last
 }) => {
+  const state = useHookstate(param)
+
   const handleEnableChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    saveParam({
-      ...param,
-      enable: e.target.checked
-    })
+    state.enable.set(e.target.checked)
+    changeParam()
+
+    if (last) {
+      addParam()
+    }
   }
 
   const handleKeyChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    saveParam({
-      ...param,
-      key: e.target.value
-    })
+    state.key.set(e.target.value)
+    changeParam()
 
-    if (param.id === lastParamId) {
+    if (last) {
       addParam()
     }
   }
 
   const handleValueChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    saveParam({
-      ...param,
-      value: e.target.value
-    })
+    state.nested('value').set(e.target.value)
+    changeParam()
 
-    if (param.id === lastParamId) {
+    if (last) {
       addParam()
     }
   }
@@ -55,18 +52,20 @@ const ParamRow: React.FC<ParamRowProps> = ({
   return (
     <tr className="border-collapse">
       <td className="border-zinc-700 border p-2 text-center w-10" >
-        <input type="checkbox" onChange={handleEnableChange} checked={param.enable} />
+        <input type="checkbox" onChange={handleEnableChange} checked={param.enable.get()} />
       </td>
       <td className="border-zinc-700 border">
-        <input type="text" className="bg-transparent w-full p-2" onChange={handleKeyChange} value={param.key} />
+        <input type="text" className="bg-transparent w-full p-2" onChange={handleKeyChange} value={param.key.get()} />
       </td>
       <td className="border-zinc-700 border">
-        <input type="text" className="bg-transparent w-full p-2" onChange={handleValueChange} value={param.value} />
+        <input type="text" className="bg-transparent w-full p-2" onChange={handleValueChange} value={param.nested('value').get()} />
       </td>
       <td className="border-zinc-700 border p-2 text-center w-10">
-        <button onClick={() => { removeParam(param) }}>
-          <Trash2 size={14} className="cursor-pointer hover:text-zinc-500" />
-        </button>
+        {!last &&
+          <button onClick={() => { removeParam(index) }}>
+            <Trash2 size={14} className="cursor-pointer hover:text-zinc-500" />
+          </button>
+        }
       </td>
     </tr>
   )

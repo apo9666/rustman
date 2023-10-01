@@ -55,10 +55,10 @@ export interface Header {
   value: string
 }
 
-export const headerInitialState: Header = {
-  enable: true,
-  key: '',
-  value: ''
+export interface Param {
+  enable: boolean
+  key: string
+  value: string
 }
 
 export interface TabContent {
@@ -66,6 +66,7 @@ export interface TabContent {
   url: string
   body: string
   headers: Header[]
+  params: Param[]
   response: Response
 }
 
@@ -79,27 +80,40 @@ interface TabState {
   tabs: Tab[]
 }
 
-export const tabInitialState: Tab = {
-  label: 'New Tab',
-  content: {
-    url: '',
-    headers: [headerInitialState],
-    method: MethodEnum.GET,
-    body: '',
-    response: {
-      data: '',
-      headers: {},
-      ok: true,
-      rawHeaders: {},
-      status: 200,
-      url: ''
-    }
-  }
-}
-
 const tabsInitialState: TabState = {
   activeTabId: 0,
-  tabs: [tabInitialState]
+  tabs: [
+    {
+      label: 'New Tab',
+      content: {
+        url: '',
+        headers: [
+          {
+            enable: true,
+            key: '',
+            value: ''
+          }
+        ],
+        params: [
+          {
+            enable: true,
+            key: '',
+            value: ''
+          }
+        ],
+        method: MethodEnum.GET,
+        body: '',
+        response: {
+          data: '',
+          headers: {},
+          ok: true,
+          rawHeaders: {},
+          status: 200,
+          url: ''
+        }
+      }
+    }
+  ]
 }
 
 export const treeState = hookstate(treeInitialState)

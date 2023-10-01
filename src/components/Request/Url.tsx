@@ -3,7 +3,7 @@ import { ChevronDown } from 'lucide-react'
 import * as Select from '@radix-ui/react-select'
 import { useHookstate, type State, type ImmutableArray } from '@hookstate/core'
 import { Body, ResponseType, getClient, type Response } from '@tauri-apps/api/http'
-import { type Header, MethodEnum, type TabContent } from '../../state'
+import { type Header, MethodEnum, type TabContent, type Param } from '../../state'
 
 interface RequestUrlProps {
   content: State<TabContent>
@@ -110,8 +110,30 @@ const RequestUrl: React.FC<RequestUrlProps> = (props) => {
   }
 
   const handleUrlChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    console.log(props.index)
     content.url.set(e.target.value)
+
+    try {
+      const newUrl = new URL(content.url.get())
+      content.params.set(params => params.filter(param => !param.enable))
+
+      const params: Param[] = []
+      newUrl.searchParams.forEach((value, key) => {
+        params.push({
+          enable: true,
+          key,
+          value
+        })
+      })
+
+      content.params.merge([
+        ...params,
+        {
+          enable: true,
+          key: '',
+          value: ''
+        }
+      ])
+    } catch (e) { /* empty */ }
   }
 
   const handleSend = (e: FormEvent<HTMLFormElement>): void => {

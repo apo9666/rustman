@@ -26,7 +26,7 @@ const RequestContent: React.FC<RequestContentProps> = (props) => {
         </Tabs.Trigger>
       </Tabs.List>
       <Tabs.Content className="flex-grow flex-shrink-0 overflow-y-auto" value="params">
-        <ParamTable url={state.url} />
+        <ParamTable url={state.url} params={state.params} />
       </Tabs.Content>
       <Tabs.Content className="flex-grow flex-shrink-0 overflow-y-auto" value="headers">
         <HeaderTable headers={state.headers} />

@@ -26,6 +26,13 @@ const TabsList: React.FC<TabsListProps> = ({ children }) => {
               value: ''
             }
           ],
+          params: [
+            {
+              enable: true,
+              key: '',
+              value: ''
+            }
+          ],
           method: MethodEnum.GET,
           body: '',
           response: {

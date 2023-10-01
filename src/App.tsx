@@ -80,6 +80,13 @@ const convertContent = (
         value: ''
       }
     ],
+    params: [
+      {
+        enable: true,
+        key: '',
+        value: ''
+      }
+    ],
     response: {
       data: '',
       headers: {},

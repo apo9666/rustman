@@ -52,7 +52,7 @@ const TabsList: React.FC<TabsListProps> = ({ children }) => {
   return (
     <Tabs.List className="flex-wrap">
       {children}
-      <Plus onPointerDown={addTab} className="flex ml-1 cursor-pointer" size={20} />
+      <Plus onPointerDown={addTab} className="ml-1 cursor-pointer inline-block" size={20} />
     </Tabs.List>
   )
 }

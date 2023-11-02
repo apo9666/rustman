@@ -64,6 +64,14 @@ const TreeDirectory: React.FC<TreeDirectoryProps> = ({ node }) => {
   }
 
   if (node.children.ornull !== undefined) {
+    if (node.label.value === 'Root') {
+      return (
+        <>
+          {node.children.ornull?.map((child, index) => <TreeDirectory key={index} node={child} />)}
+        </>
+      )
+    }
+
     return (
       <Collapsible.Root open={node.expanded.get()} onOpenChange={handleOpenChange}>
         <a className="flex items-center gap-1 px-5 py-1">
@@ -81,6 +89,7 @@ const TreeDirectory: React.FC<TreeDirectoryProps> = ({ node }) => {
       </Collapsible.Root>
     )
   }
+
   return (
     <a className="flex items-center gap-1 px-5 py-1" onClick={handleOnClick}>
       {/* <span className="flex items-center">

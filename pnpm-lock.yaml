@@ -8,6 +8,9 @@ dependencies:
   '@hookstate/core':
     specifier: ^4.0.1
     version: 4.0.1(react@18.2.0)
+  '@hookstate/localstored':
+    specifier: ^4.0.2
+    version: 4.0.2(@hookstate/core@4.0.1)
   '@radix-ui/react-collapsible':
     specifier: ^1.0.3
     version: 1.0.3(@types/react-dom@18.2.0)(@types/react@18.2.0)(react-dom@18.2.0)(react@18.2.0)
@@ -395,6 +398,14 @@ packages:
       react: ^16.8.6 || ^17.0.0 || ^18.0.0
     dependencies:
       react: 18.2.0
+    dev: false
+
+  /@hookstate/localstored@4.0.2(@hookstate/core@4.0.1):
+    resolution: {integrity: sha512-81dbUH6xnwbePby21NQN8zrmjvMA8tOYeOOLZXqRmRGKnhtcokjTJoRNMZugpC9P3/NnacllBZ5ZUt43nmrKkA==}
+    peerDependencies:
+      '@hookstate/core': ^4.0.0
+    dependencies:
+      '@hookstate/core': 4.0.1(react@18.2.0)
     dev: false
 
   /@humanwhocodes/config-array@0.11.11:

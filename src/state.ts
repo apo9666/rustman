@@ -1,5 +1,6 @@
 import { hookstate } from '@hookstate/core'
 import { type OpenAPIObject } from 'openapi3-ts/oas31'
+import { localstored } from '@hookstate/localstored'
 
 export interface TreeNode {
   label: string
@@ -116,7 +117,11 @@ const tabsInitialState: TabState = {
   ]
 }
 
-export const treeState = hookstate(treeInitialState)
-export const tabState = hookstate(tabsInitialState)
+export const treeState = hookstate(treeInitialState, localstored({
+  key: 'tree'
+}))
+export const tabState = hookstate(tabsInitialState, localstored({
+  key: 'tab'
+}))
 
 export const apiState = hookstate<OpenAPIObject>(init)

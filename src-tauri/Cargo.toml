@@ -1,11 +1,11 @@
 [package]
-name = "app"
+name = "Rustman"
 version = "0.1.0"
-description = "A Tauri App"
+description = "A Rustman app"
 authors = ["you"]
 license = ""
 repository = ""
-default-run = "app"
+default-run = "Rustman"
 edition = "2021"
 rust-version = "1.60"
 

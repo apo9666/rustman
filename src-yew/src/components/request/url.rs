@@ -120,9 +120,14 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
         <form class="form-row" onsubmit={on_submit}>
             <div class="request-url">
                 <div class="select-wrap">
-                    <select class="method-select" value={content.method.as_str().to_string()} onchange={on_method_change}>
-                        { for MethodEnum::all().iter().map(|method| html! {
-                            <option value={method.as_str().to_string()}>{ method.as_str() }</option>
+                    <select class="method-select" onchange={on_method_change}>
+                        { for MethodEnum::all().iter().map(|method| {
+                            let is_selected = *method == content.method;
+                            html! {
+                                <option value={method.as_str().to_string()} selected={is_selected}>
+                                    { method.as_str() }
+                                </option>
+                            }
                         }) }
                     </select>
                     <span class="select-chevron"></span>

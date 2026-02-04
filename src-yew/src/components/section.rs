@@ -162,7 +162,7 @@ pub fn section(props: &SectionProps) -> Html {
                         <div class="tab-panel" ref={panel_ref}>
                             <div class="request-pane" style={request_style}>
                                 <RequestTitle title={tab.label.clone()} on_save={props.on_save.clone()} />
-                                <RequestUrl tab_index={active} content={tab.content.clone()} />
+                                <RequestUrl key={active.to_string()} tab_index={active} content={tab.content.clone()} />
                                 <RequestContent tab_index={active} content={tab.content.clone()} />
                             </div>
                             <div class="resize-handle" onmousedown={on_resize_start}></div>

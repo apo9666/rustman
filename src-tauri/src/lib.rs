@@ -1,9 +1,13 @@
 use std::collections::HashMap;
-
+use std::sync::Arc;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::webview::PageLoadEvent;
 use tauri::Emitter;
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -43,7 +47,7 @@ pub fn run() {
             }
             _ => {}
         })
-        .invoke_handler(tauri::generate_handler![send_request])
+        .invoke_handler(tauri::generate_handler![send_request, open_preview])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -132,4 +136,35 @@ async fn send_request(
         raw_headers,
         data,
     })
+}
+
+#[tauri::command]
+fn open_preview(app: AppHandle, html: String) -> Result<(), String> {
+    let encoded = STANDARD.encode(html);
+    let script = format!(
+        "(function(){{const html=atob('{encoded}');setTimeout(()=>{{document.open();document.write(html);document.close();}},0);}})();"
+    );
+    if let Some(window) = app.get_webview_window("preview") {
+        let _ = window.eval(&script);
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    let script = Arc::new(script);
+    let script_for_load = script.clone();
+
+    let window = WebviewWindowBuilder::new(&app, "preview", WebviewUrl::App("index.html".into()))
+        .title("Preview")
+        .on_page_load(move |window, payload| {
+            if matches!(payload.event(), PageLoadEvent::Finished) {
+                let _ = window.eval(script_for_load.as_str());
+            }
+        })
+        .build()
+        .map_err(|err| err.to_string())?;
+
+    let _ = window.eval(script.as_str());
+
+    Ok(())
 }

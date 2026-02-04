@@ -26,6 +26,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 time = "0.3.46"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+base64 = "0.22"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.

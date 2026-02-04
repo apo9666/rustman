@@ -28,6 +28,7 @@ pub fn section(props: &SectionProps) -> Html {
 
     let tabs = tab_state.tabs.clone();
     let active = tab_state.active_tab_id;
+    let pending_close = use_state(|| None::<usize>);
 
     let on_add = {
         let tab_state = tab_state.clone();
@@ -48,9 +49,15 @@ pub fn section(props: &SectionProps) -> Html {
             tab_state_for_select.dispatch(TabAction::SetActive(index));
         });
         let tab_state_for_close = tab_state.clone();
+        let pending_close = pending_close.clone();
+        let is_dirty = tab.dirty;
         let on_close = Callback::from(move |event: MouseEvent| {
             event.stop_propagation();
-            tab_state_for_close.dispatch(TabAction::CloseTab(index));
+            if is_dirty {
+                pending_close.set(Some(index));
+            } else {
+                tab_state_for_close.dispatch(TabAction::CloseTab(index));
+            }
         });
         html! {
             <button
@@ -137,6 +144,7 @@ pub fn section(props: &SectionProps) -> Html {
     }
 
     html! {
+        <>
         <div class="tabs">
             <div class="tab-list">
                 { for triggers }
@@ -172,6 +180,48 @@ pub fn section(props: &SectionProps) -> Html {
                 }
             }
         </div>
+        {
+            if let Some(index) = (*pending_close).clone() {
+                let label = tabs
+                    .get(index)
+                    .map(|tab| tab.label.clone())
+                    .unwrap_or_else(|| "this tab".to_string());
+                let on_confirm = {
+                    let tab_state = tab_state.clone();
+                    let pending_close = pending_close.clone();
+                    Callback::from(move |_| {
+                        tab_state.dispatch(TabAction::CloseTab(index));
+                        pending_close.set(None);
+                    })
+                };
+                let on_cancel = {
+                    let pending_close = pending_close.clone();
+                    Callback::from(move |_| {
+                        pending_close.set(None);
+                    })
+                };
+                let on_confirm_click =
+                    Callback::from(move |_event: MouseEvent| on_confirm.emit(()));
+                let on_cancel_click =
+                    Callback::from(move |_event: MouseEvent| on_cancel.emit(()));
+
+                html! {
+                    <div class="modal-backdrop">
+                        <div class="modal">
+                            <h2 class="modal-title">{ "Close tab?" }</h2>
+                            <p class="modal-text">{ format!("Discard changes on \"{}\"?", label) }</p>
+                            <div class="modal-actions">
+                                <button class="button secondary" onclick={on_cancel_click}>{ "Cancel" }</button>
+                                <button class="button danger" onclick={on_confirm_click}>{ "Close" }</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            } else {
+                html! {}
+            }
+        }
+        </>
     }
 }
 

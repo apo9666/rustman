@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 yew = { version = "0.21", features = ["csr"] }
 gloo-net = "0.5"
+gloo = "0.11"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
@@ -16,6 +17,8 @@ url = "2"
 http = "0.2"
 web-sys = { version = "0.3", features = [
   "Document",
+  "Element",
+  "DomRect",
   "Event",
   "EventTarget",
   "HtmlInputElement",

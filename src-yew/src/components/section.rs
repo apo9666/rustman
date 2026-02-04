@@ -1,3 +1,5 @@
+use gloo::events::EventListener;
+use wasm_bindgen::JsCast;
 use yew::prelude::*;
 
 use crate::components::request::content::RequestContent;
@@ -17,6 +19,11 @@ pub fn section(props: &SectionProps) -> Html {
     let Some(tab_state) = tab_state else {
         return html! {};
     };
+
+    let panel_ref = use_node_ref();
+    let request_height = use_state(|| 320.0);
+    let dragging = use_state(|| false);
+    let drag_state = use_mut_ref(|| DragState::default());
 
     let tabs = tab_state.tabs.clone();
     let active = tab_state.active_tab_id;
@@ -53,6 +60,69 @@ pub fn section(props: &SectionProps) -> Html {
 
     let active_tab = tabs.get(active).cloned();
 
+    let on_resize_start = {
+        let dragging = dragging.clone();
+        let request_height = request_height.clone();
+        let drag_state = drag_state.clone();
+        Callback::from(move |event: MouseEvent| {
+            event.prevent_default();
+            dragging.set(true);
+            let mut state = drag_state.borrow_mut();
+            state.start_y = event.client_y() as f64;
+            state.start_height = *request_height;
+        })
+    };
+
+    {
+        let dragging = dragging.clone();
+        let request_height = request_height.clone();
+        let panel_ref = panel_ref.clone();
+        let drag_state = drag_state.clone();
+        use_effect_with(dragging.clone(), move |is_dragging| {
+            if !**is_dragging {
+                return Box::new(|| ()) as Box<dyn FnOnce()>;
+            }
+
+            let window = web_sys::window().expect("window not available");
+            let move_listener = EventListener::new(&window, "mousemove", move |event| {
+                let event = event
+                    .dyn_ref::<web_sys::MouseEvent>()
+                    .expect("event should be a mouse event");
+                let state = drag_state.borrow();
+                let delta = event.client_y() as f64 - state.start_y;
+                let mut next_height = state.start_height + delta;
+
+                let container_height = panel_ref
+                    .cast::<web_sys::Element>()
+                    .map(|element| element.get_bounding_client_rect().height())
+                    .unwrap_or(600.0);
+
+                let min_request = 180.0;
+                let min_response = 180.0;
+                let max_request = (container_height - min_response).max(min_request);
+
+                if next_height < min_request {
+                    next_height = min_request;
+                }
+                if next_height > max_request {
+                    next_height = max_request;
+                }
+
+                request_height.set(next_height);
+            });
+
+            let dragging = dragging.clone();
+            let up_listener = EventListener::new(&window, "mouseup", move |_| {
+                dragging.set(false);
+            });
+
+            Box::new(move || {
+                drop(move_listener);
+                drop(up_listener);
+            }) as Box<dyn FnOnce()>
+        });
+    }
+
     html! {
         <div class="tabs">
             <div class="tab-list">
@@ -61,11 +131,15 @@ pub fn section(props: &SectionProps) -> Html {
             </div>
             {
                 if let Some(tab) = active_tab {
+                    let request_style = format!("height: {}px;", *request_height);
                     html! {
-                        <div class="tab-panel">
-                            <RequestTitle title={tab.label.clone()} on_save={props.on_save.clone()} />
-                            <RequestUrl tab_index={active} content={tab.content.clone()} />
-                            <RequestContent tab_index={active} content={tab.content.clone()} />
+                        <div class="tab-panel" ref={panel_ref}>
+                            <div class="request-pane" style={request_style}>
+                                <RequestTitle title={tab.label.clone()} on_save={props.on_save.clone()} />
+                                <RequestUrl tab_index={active} content={tab.content.clone()} />
+                                <RequestContent tab_index={active} content={tab.content.clone()} />
+                            </div>
+                            <div class="resize-handle" onmousedown={on_resize_start}></div>
                             <ResponseContent tab_index={active} data={tab.content.response.data.clone()} />
                         </div>
                     }
@@ -75,4 +149,10 @@ pub fn section(props: &SectionProps) -> Html {
             }
         </div>
     }
+}
+
+#[derive(Default)]
+struct DragState {
+    start_y: f64,
+    start_height: f64,
 }

@@ -43,8 +43,8 @@ pub fn response_content(props: &ResponseContentProps) -> Html {
                 <h1>{ "Response" }</h1>
                 <button class="button secondary" onclick={on_format}>{ "Format" }</button>
             </div>
-            <div class="form-row">
-                <textarea class="editor" readonly=true value={props.data.clone()} />
+            <div class="response-body">
+                <textarea class="editor response-editor" readonly=true value={props.data.clone()} />
             </div>
         </div>
     }

@@ -141,36 +141,6 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
         })
     };
 
-    let add_folder = {
-        let tree_state = tree_state.clone();
-        let path = props.path.clone();
-        let siblings = props.node.children.clone();
-        Rc::new(move || {
-            let label = prompt_folder_name()
-                .filter(|name| !name.trim().is_empty())
-                .unwrap_or_else(|| next_folder_name(&siblings));
-            tree_state.dispatch(TreeAction::AddChild {
-                path: path.clone(),
-                node: TreeNode {
-                    label,
-                    content: None,
-                    expanded: true,
-                    children: Vec::new(),
-                },
-            });
-        })
-    };
-
-    let on_menu_add_folder = {
-        let menu_open = menu_open.clone();
-        let add_folder = add_folder.clone();
-        Callback::from(move |event: MouseEvent| {
-            event.stop_propagation();
-            menu_open.set(false);
-            add_folder();
-        })
-    };
-
     let on_menu_edit = {
         let menu_open = menu_open.clone();
         let on_rename = on_rename.clone();
@@ -278,7 +248,7 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
                                         <button
                                             type="button"
                                             class="tree-row-menu"
-                                            title="Mais ações"
+                                            title="More actions"
                                             onclick={on_menu_toggle}
                                         >
                                             { "⋯" }
@@ -287,17 +257,14 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
                                             if *menu_open {
                                                 html! {
                                                     <div class="tree-menu">
-                                                        <button type="button" class="tree-menu-item" onclick={on_menu_add_folder.clone()}>
-                                                            { "Nova pasta" }
-                                                        </button>
                                                         <button type="button" class="tree-menu-item" onclick={on_menu_edit.clone()}>
-                                                            { "Editar" }
+                                                            { "Edit" }
                                                         </button>
                                                         <button type="button" class="tree-menu-item" onclick={on_menu_move.clone()}>
-                                                            { "Mover" }
+                                                            { "Move" }
                                                         </button>
                                                         <button type="button" class="tree-menu-item danger" onclick={on_menu_delete.clone()}>
-                                                            { "Remover" }
+                                                            { "Remove" }
                                                         </button>
                                                     </div>
                                                 }
@@ -394,7 +361,7 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
                                 <button
                                     type="button"
                                     class="tree-row-menu"
-                                    title="Mais ações"
+                                    title="More actions"
                                     onclick={on_menu_toggle}
                                 >
                                     { "⋯" }
@@ -404,13 +371,13 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
                                         html! {
                                             <div class="tree-menu">
                                                 <button type="button" class="tree-menu-item" onclick={on_menu_edit}>
-                                                    { "Editar" }
+                                                    { "Edit" }
                                                 </button>
                                                 <button type="button" class="tree-menu-item" onclick={on_menu_move}>
-                                                    { "Mover" }
+                                                    { "Move" }
                                                 </button>
                                                 <button type="button" class="tree-menu-item danger" onclick={on_menu_delete}>
-                                                    { "Remover" }
+                                                    { "Remove" }
                                                 </button>
                                             </div>
                                         }
@@ -427,34 +394,6 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
             }
         </div>
     }
-}
-
-fn prompt_folder_name() -> Option<String> {
-    let window = web_sys::window()?;
-    let name = window
-        .prompt_with_message_and_default("Nome da pasta", "Nova pasta")
-        .ok()
-        .flatten()?;
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
-
-fn next_folder_name(children: &[TreeNode]) -> String {
-    let base = "Nova pasta";
-    if !children.iter().any(|child| child.label == base) {
-        return base.to_string();
-    }
-    for index in 2..1000 {
-        let candidate = format!("{base} ({index})");
-        if !children.iter().any(|child| child.label == candidate) {
-            return candidate;
-        }
-    }
-    format!("{base} ({})", children.len() + 1)
 }
 
 fn event_target_value(event: &InputEvent) -> String {

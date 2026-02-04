@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 use yew::prelude::*;
+use url::Url;
 
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
 pub struct Response {
@@ -168,6 +169,7 @@ impl Default for TabContent {
 pub struct Tab {
     pub label: String,
     pub content: TabContent,
+    pub dirty: bool,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -183,6 +185,7 @@ impl Default for TabState {
             tabs: vec![Tab {
                 label: "New Tab".to_string(),
                 content: TabContent::default(),
+                dirty: false,
             }],
         }
     }
@@ -194,6 +197,7 @@ pub enum TabAction {
     CloseTab(usize),
     SetActive(usize),
     RenameTab { index: usize, label: String },
+    SetDirty { index: usize, dirty: bool },
     UpdateMethod { index: usize, method: MethodEnum },
     UpdateUrl { index: usize, url: String },
     UpdateBody { index: usize, body: String },
@@ -221,11 +225,16 @@ impl Reducible for TabState {
                 state.tabs.push(Tab {
                     label: "New".to_string(),
                     content: TabContent::default(),
+                    dirty: false,
                 });
                 state.active_tab_id = state.tabs.len().saturating_sub(1);
             }
             TabAction::OpenTab { label, content } => {
-                state.tabs.push(Tab { label, content });
+                state.tabs.push(Tab {
+                    label,
+                    content,
+                    dirty: false,
+                });
                 state.active_tab_id = state.tabs.len().saturating_sub(1);
             }
             TabAction::CloseTab(index) => {
@@ -236,6 +245,7 @@ impl Reducible for TabState {
                     state.tabs.push(Tab {
                         label: "New Tab".to_string(),
                         content: TabContent::default(),
+                        dirty: false,
                     });
                     state.active_tab_id = 0;
                 } else if state.active_tab_id >= state.tabs.len() {
@@ -254,20 +264,31 @@ impl Reducible for TabState {
                     tab.label = label;
                 }
             }
+            TabAction::SetDirty { index, dirty } => {
+                if let Some(tab) = state.tabs.get_mut(index) {
+                    tab.dirty = dirty;
+                }
+            }
             TabAction::UpdateMethod { index, method } => {
                 if let Some(tab) = state.tabs.get_mut(index) {
                     tab.content.method = method;
+                    tab.dirty = true;
                 }
             }
             TabAction::UpdateUrl { index, url } => {
                 if let Some(tab) = state.tabs.get_mut(index) {
                     tab.content.url = url;
+                    tab.dirty = true;
+                    if let Some(label) = tab_label_from_url(&tab.content.url) {
+                        tab.label = label;
+                    }
                 }
             }
             TabAction::UpdateBody { index, body } => {
                 if let Some(tab) = state.tabs.get_mut(index) {
                     tab.content.body = body;
                     tab.content.body_formatted = false;
+                    tab.dirty = true;
                 }
             }
             TabAction::SetBodyState {
@@ -278,17 +299,23 @@ impl Reducible for TabState {
                 if let Some(tab) = state.tabs.get_mut(index) {
                     tab.content.body = body;
                     tab.content.body_formatted = formatted;
+                    tab.dirty = true;
                 }
             }
             TabAction::SetHeaders { index, headers } => {
                 if let Some(tab) = state.tabs.get_mut(index) {
                     tab.content.headers = headers;
+                    tab.dirty = true;
                 }
             }
             TabAction::UpdateUrlAndParams { index, url, params } => {
                 if let Some(tab) = state.tabs.get_mut(index) {
                     tab.content.url = url;
                     tab.content.params = params;
+                    tab.dirty = true;
+                    if let Some(label) = tab_label_from_url(&tab.content.url) {
+                        tab.label = label;
+                    }
                 }
             }
             TabAction::SetResponse { index, response } => {
@@ -315,6 +342,7 @@ pub struct TreeState {
     pub selected_path: Option<Vec<usize>>,
     pub pending_delete: Option<PendingDelete>,
     pub pending_move: Option<PendingMove>,
+    pub selected_server: Option<usize>,
 }
 
 impl Default for TreeState {
@@ -329,6 +357,7 @@ impl Default for TreeState {
             selected_path: None,
             pending_delete: None,
             pending_move: None,
+            selected_server: None,
         }
     }
 }
@@ -347,8 +376,12 @@ pub struct PendingMove {
 
 pub enum TreeAction {
     SetExpanded { path: Vec<usize>, open: bool },
-    AddRootChild(TreeNode),
+    AddServer { label: String },
+    RemoveServer { index: usize },
+    SetSelectedServer { index: usize },
+    SetServers { servers: Vec<TreeNode> },
     AddChild { path: Vec<usize>, node: TreeNode },
+    ReplaceNode { path: Vec<usize>, node: TreeNode },
     Rename { path: Vec<usize>, label: String },
     SetSelected { path: Vec<usize> },
     RequestDelete { path: Vec<usize>, label: String },
@@ -368,11 +401,51 @@ impl Reducible for TreeState {
             TreeAction::SetExpanded { path, open } => {
                 set_expanded(&mut state.root, &path, open);
             }
-            TreeAction::AddRootChild(node) => {
-                state.root.children.push(node);
+            TreeAction::AddServer { label } => {
+                state.root.children.push(TreeNode {
+                    label,
+                    content: None,
+                    expanded: true,
+                    children: Vec::new(),
+                });
+                if state.selected_server.is_none() {
+                    state.selected_server = Some(state.root.children.len().saturating_sub(1));
+                }
+            }
+            TreeAction::RemoveServer { index } => {
+                if index < state.root.children.len() {
+                    state.root.children.remove(index);
+                }
+                state.selected_path = adjust_selected_path_for_server_removal(
+                    state.selected_path.take(),
+                    index,
+                );
+                state.pending_move = None;
+                state.pending_delete = None;
+                state.selected_server = adjust_selected_server(state.selected_server, index, state.root.children.len());
+            }
+            TreeAction::SetSelectedServer { index } => {
+                if index < state.root.children.len() {
+                    state.selected_server = Some(index);
+                    state.selected_path = None;
+                }
+            }
+            TreeAction::SetServers { servers } => {
+                state.root.children = servers;
+                state.selected_server = if state.root.children.is_empty() {
+                    None
+                } else {
+                    Some(0)
+                };
+                state.selected_path = None;
+                state.pending_move = None;
+                state.pending_delete = None;
             }
             TreeAction::AddChild { path, node } => {
                 add_child(&mut state.root, &path, node);
+            }
+            TreeAction::ReplaceNode { path, node } => {
+                replace_node(&mut state.root, &path, node);
             }
             TreeAction::Rename { path, label } => {
                 rename_node(&mut state.root, &path, label);
@@ -459,7 +532,7 @@ fn rename_node(node: &mut TreeNode, path: &[usize], label: String) {
     }
 }
 
-fn remove_node(node: &mut TreeNode, path: &[usize]) {
+fn replace_node(node: &mut TreeNode, path: &[usize], replacement: TreeNode) {
     if path.is_empty() {
         return;
     }
@@ -467,6 +540,23 @@ fn remove_node(node: &mut TreeNode, path: &[usize]) {
     let Some((first, rest)) = path.split_first() else {
         return;
     };
+
+    if rest.is_empty() {
+        if let Some(child) = node.children.get_mut(*first) {
+            *child = replacement;
+        }
+        return;
+    }
+
+    if let Some(target) = node.children.get_mut(*first) {
+        replace_node(target, rest, replacement);
+    }
+}
+
+fn remove_node(node: &mut TreeNode, path: &[usize]) {
+    if path.is_empty() {
+        return;
+    }
 
     let _ = remove_node_at(node, path);
 }
@@ -524,4 +614,79 @@ fn is_prefix_path(prefix: &[usize], path: &[usize]) -> bool {
         .iter()
         .zip(path.iter())
         .all(|(a, b)| a == b)
+}
+
+fn adjust_selected_path_for_server_removal(
+    selected: Option<Vec<usize>>,
+    removed_index: usize,
+) -> Option<Vec<usize>> {
+    let mut path = selected?;
+    let Some(first) = path.first_mut() else {
+        return None;
+    };
+    if *first == removed_index {
+        return None;
+    }
+    if *first > removed_index {
+        *first = first.saturating_sub(1);
+    }
+    Some(path)
+}
+
+fn adjust_selected_server(
+    selected: Option<usize>,
+    removed_index: usize,
+    remaining: usize,
+) -> Option<usize> {
+    let Some(selected) = selected else {
+        return if remaining > 0 { Some(0) } else { None };
+    };
+    if selected == removed_index {
+        return if remaining > 0 { Some(0) } else { None };
+    }
+    if selected > removed_index {
+        return Some(selected.saturating_sub(1));
+    }
+    if selected < remaining {
+        Some(selected)
+    } else if remaining > 0 {
+        Some(remaining - 1)
+    } else {
+        None
+    }
+}
+
+fn tab_label_from_url(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if trimmed.starts_with('/') {
+        let path = trimmed.split('?').next().unwrap_or("/");
+        return Some(normalize_path(path));
+    }
+
+    if let Ok(url) = Url::parse(trimmed) {
+        if matches!(url.scheme(), "http" | "https") {
+            return Some(normalize_path(url.path()));
+        }
+    }
+
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return None;
+    }
+
+    let candidate = format!("https://{trimmed}");
+    Url::parse(&candidate)
+        .ok()
+        .map(|url| normalize_path(url.path()))
+}
+
+fn normalize_path(path: &str) -> String {
+    if path.is_empty() {
+        "/".to_string()
+    } else {
+        path.to_string()
+    }
 }

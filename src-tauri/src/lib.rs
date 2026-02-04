@@ -16,7 +16,13 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .menu(|handle| {
             let open = MenuItem::with_id(handle, "open", "Open", true, Some("cmdOrControl+O"))?;
-            let save = MenuItem::with_id(handle, "save", "Save", true, Some("cmdOrControl+S"))?;
+            let save = MenuItem::with_id(
+                handle,
+                "save",
+                "Export OpenAPI v3",
+                true,
+                Some("cmdOrControl+S"),
+            )?;
             let close = MenuItem::with_id(handle, "close", "Close", true, Some("cmdOrControl+Q"))?;
             let file_menu = Submenu::with_items(handle, "File", true, &[&open, &save, &close])?;
             let edit_menu = Submenu::with_items(

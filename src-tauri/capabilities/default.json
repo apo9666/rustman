@@ -9,7 +9,13 @@
     "core:default",
     "dialog:allow-open",
     "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-confirm",
     "fs:allow-read-file",
-    "fs:allow-write-file"
+    "fs:allow-exists",
+    "fs:allow-write-file",
+    "fs:allow-write-text-file",
+    "fs:allow-desktop-write",
+    "fs:allow-download-write"
   ]
 }

@@ -621,6 +621,8 @@ async fn open_openapi(tree_state: UseReducerHandle<TreeState>) {
         }
     };
     tree_state.dispatch(TreeAction::SetTree { root, servers });
+    let title = filename_from_path(&path);
+    let _ = tauri_api::set_window_title(&title).await;
 }
 
 async fn export_openapi(tree_state: UseReducerHandle<TreeState>) {
@@ -644,7 +646,11 @@ async fn export_openapi(tree_state: UseReducerHandle<TreeState>) {
     let target = ensure_openapi_extension(&path);
     let create_new_options = r#"{"createNew":true,"create":true}"#;
     match tauri_api::fs_write_text_with_options(&target, &text, Some(create_new_options)).await {
-        Ok(()) => return,
+        Ok(()) => {
+            let title = filename_from_path(&target);
+            let _ = tauri_api::set_window_title(&title).await;
+            return;
+        }
         Err(err) => {
             let message = tauri_api::js_error_to_string(&err);
             if is_exists_error(&message) {
@@ -656,7 +662,10 @@ async fn export_openapi(tree_state: UseReducerHandle<TreeState>) {
                         "Falha ao salvar o arquivo: {}",
                         tauri_api::js_error_to_string(&err)
                     ));
+                    return;
                 }
+                let title = filename_from_path(&target);
+                let _ = tauri_api::set_window_title(&title).await;
                 return;
             }
             show_alert(&format!("Falha ao salvar o arquivo: {message}"));
@@ -670,6 +679,16 @@ fn ensure_openapi_extension(path: &str) -> String {
         return path.to_string();
     }
     format!("{path}.yaml")
+}
+
+fn filename_from_path(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    normalized
+        .split('/')
+        .last()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("rustman")
+        .to_string()
 }
 
 fn infer_tag_from_selection(root: &TreeNode, selected: Option<&Vec<usize>>) -> Option<String> {

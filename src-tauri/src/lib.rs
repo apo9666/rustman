@@ -53,7 +53,11 @@ pub fn run() {
             }
             _ => {}
         })
-        .invoke_handler(tauri::generate_handler![send_request, open_preview])
+        .invoke_handler(tauri::generate_handler![
+            send_request,
+            open_preview,
+            set_window_title
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -171,6 +175,20 @@ fn open_preview(app: AppHandle, html: String) -> Result<(), String> {
         .map_err(|err| err.to_string())?;
 
     let _ = window.eval(script.as_str());
+
+    Ok(())
+}
+
+#[tauri::command]
+fn set_window_title(app: AppHandle, title: String) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_title(&title).map_err(|err| err.to_string())?;
+        return Ok(());
+    }
+
+    if let Some(window) = app.webview_windows().values().next() {
+        window.set_title(&title).map_err(|err| err.to_string())?;
+    }
 
     Ok(())
 }

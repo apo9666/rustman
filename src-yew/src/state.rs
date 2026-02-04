@@ -140,7 +140,7 @@ impl Default for TabContent {
     fn default() -> Self {
         Self {
             method: MethodEnum::Get,
-            url: String::new(),
+            url: "/".to_string(),
             body: String::new(),
             body_formatted: false,
             headers: vec![
@@ -182,11 +182,7 @@ impl Default for TabState {
     fn default() -> Self {
         Self {
             active_tab_id: 0,
-            tabs: vec![Tab {
-                label: "New Tab".to_string(),
-                content: TabContent::default(),
-                dirty: false,
-            }],
+            tabs: Vec::new(),
         }
     }
 }
@@ -223,7 +219,7 @@ impl Reducible for TabState {
         match action {
             TabAction::AddTab => {
                 state.tabs.push(Tab {
-                    label: "New".to_string(),
+                    label: "/".to_string(),
                     content: TabContent::default(),
                     dirty: false,
                 });
@@ -242,11 +238,6 @@ impl Reducible for TabState {
                     state.tabs.remove(index);
                 }
                 if state.tabs.is_empty() {
-                    state.tabs.push(Tab {
-                        label: "New Tab".to_string(),
-                        content: TabContent::default(),
-                        dirty: false,
-                    });
                     state.active_tab_id = 0;
                 } else if state.active_tab_id >= state.tabs.len() {
                     state.active_tab_id = state.tabs.len().saturating_sub(1);

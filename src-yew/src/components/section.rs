@@ -11,6 +11,7 @@ use crate::state::{TabAction, TabState};
 #[derive(Properties, Clone, PartialEq)]
 pub struct SectionProps {
     pub on_save: Callback<()>,
+    pub on_add_server: Callback<()>,
 }
 
 #[function_component(Section)]
@@ -34,6 +35,11 @@ pub fn section(props: &SectionProps) -> Html {
             tab_state.dispatch(TabAction::AddTab);
         })
     };
+
+    let on_add_server = props.on_add_server.clone();
+    let on_add_server_click = Callback::from(move |_event: MouseEvent| {
+        on_add_server.emit(());
+    });
 
     let triggers = tabs.iter().enumerate().map(|(index, tab)| {
         let is_active = index == active;
@@ -134,7 +140,7 @@ pub fn section(props: &SectionProps) -> Html {
         <div class="tabs">
             <div class="tab-list">
                 { for triggers }
-                <button class="tab-add" onclick={on_add}>{ "+" }</button>
+                <button class="tab-add" onclick={on_add} disabled={tabs.is_empty()}>{ "+" }</button>
             </div>
             {
                 if let Some(tab) = active_tab {
@@ -155,7 +161,14 @@ pub fn section(props: &SectionProps) -> Html {
                         </div>
                     }
                 } else {
-                    html! {}
+                    html! {
+                        <div class="tab-empty">
+                            <div class="tab-empty-card">
+                                <p class="tab-empty-text">{ "Add a server to start." }</p>
+                                <button class="tab-server-add" onclick={on_add_server_click}>{ "Add server" }</button>
+                            </div>
+                        </div>
+                    }
                 }
             }
         </div>

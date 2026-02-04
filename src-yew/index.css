@@ -269,6 +269,39 @@ body,
   cursor: pointer;
 }
 
+.tab-add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tab-server-add {
+  padding: 4px 10px;
+  background: #2563eb;
+  border: none;
+  color: #f8fafc;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.tab-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #a1a1aa;
+}
+
+.tab-empty-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.tab-empty-text {
+  margin: 0;
+}
+
 .tab-panel {
   flex: 1;
   overflow-y: auto;

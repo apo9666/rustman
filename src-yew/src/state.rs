@@ -324,6 +324,8 @@ impl Default for TreeState {
 pub enum TreeAction {
     SetExpanded { path: Vec<usize>, open: bool },
     AddRootChild(TreeNode),
+    AddChild { path: Vec<usize>, node: TreeNode },
+    Rename { path: Vec<usize>, label: String },
 }
 
 impl Reducible for TreeState {
@@ -337,6 +339,12 @@ impl Reducible for TreeState {
             }
             TreeAction::AddRootChild(node) => {
                 state.root.children.push(node);
+            }
+            TreeAction::AddChild { path, node } => {
+                add_child(&mut state.root, &path, node);
+            }
+            TreeAction::Rename { path, label } => {
+                rename_node(&mut state.root, &path, label);
             }
         }
         Rc::new(state)
@@ -355,5 +363,41 @@ fn set_expanded(node: &mut TreeNode, path: &[usize], open: bool) {
 
     if let Some(child) = node.children.get_mut(*first) {
         set_expanded(child, rest, open);
+    }
+}
+
+fn add_child(node: &mut TreeNode, path: &[usize], child: TreeNode) {
+    if path.is_empty() {
+        node.children.push(child);
+        node.expanded = true;
+        return;
+    }
+
+    let Some((first, rest)) = path.split_first() else {
+        return;
+    };
+
+    if let Some(target) = node.children.get_mut(*first) {
+        if rest.is_empty() {
+            target.children.push(child);
+            target.expanded = true;
+        } else {
+            add_child(target, rest, child);
+        }
+    }
+}
+
+fn rename_node(node: &mut TreeNode, path: &[usize], label: String) {
+    if path.is_empty() {
+        node.label = label;
+        return;
+    }
+
+    let Some((first, rest)) = path.split_first() else {
+        return;
+    };
+
+    if let Some(target) = node.children.get_mut(*first) {
+        rename_node(target, rest, label);
     }
 }

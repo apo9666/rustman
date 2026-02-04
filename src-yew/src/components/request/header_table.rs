@@ -21,7 +21,13 @@ pub fn header_table(props: &HeaderTableProps) -> Html {
     let update_headers = {
         let tab_state = tab_state.clone();
         move |mut next_headers: Vec<Header>| {
-            ensure_trailing_header(&mut next_headers);
+            if next_headers.is_empty() {
+                next_headers.push(Header {
+                    enable: true,
+                    key: String::new(),
+                    value: String::new(),
+                });
+            }
             tab_state.dispatch(TabAction::SetHeaders {
                 index,
                 headers: next_headers,
@@ -69,10 +75,27 @@ pub fn header_table(props: &HeaderTableProps) -> Html {
         let update_headers = update_headers.clone();
         let headers = headers.clone();
         Callback::from(move |row_index: usize| {
+            if headers.len() <= 1 {
+                return;
+            }
             let mut next_headers = headers.clone();
             if row_index < next_headers.len() {
                 next_headers.remove(row_index);
             }
+            update_headers(next_headers);
+        })
+    };
+
+    let on_add = {
+        let update_headers = update_headers.clone();
+        let headers = headers.clone();
+        Callback::from(move |_| {
+            let mut next_headers = headers.clone();
+            next_headers.push(Header {
+                enable: true,
+                key: String::new(),
+                value: String::new(),
+            });
             update_headers(next_headers);
         })
     };
@@ -130,7 +153,7 @@ pub fn header_table(props: &HeaderTableProps) -> Html {
                                 </td>
                                 <td>
                                     {
-                                        if is_last {
+                                        if headers.len() <= 1 {
                                             html! {}
                                         } else {
                                             html! { <button class="button ghost" onclick={on_remove_click}>{ "X" }</button> }
@@ -141,21 +164,15 @@ pub fn header_table(props: &HeaderTableProps) -> Html {
                         }
                     }) }
                 </tbody>
+                <tfoot>
+                    <tr>
+                        <td class="table-add-cell" colspan="4">
+                            <button class="button ghost table-add" onclick={on_add}>{ "+" }</button>
+                        </td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
-    }
-}
-
-fn ensure_trailing_header(headers: &mut Vec<Header>) {
-    let needs_trailing = headers.last().map(|header| {
-        !header.key.trim().is_empty() || !header.value.trim().is_empty() || !header.enable
-    });
-    if needs_trailing.unwrap_or(true) {
-        headers.push(Header {
-            enable: true,
-            key: String::new(),
-            value: String::new(),
-        });
     }
 }
 

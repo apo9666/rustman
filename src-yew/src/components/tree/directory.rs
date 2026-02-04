@@ -13,8 +13,14 @@ pub struct TreeDirectoryProps {
 }
 
 fn render_children(node: &TreeNode, path: &Vec<usize>) -> Html {
+    let mut entries: Vec<(usize, TreeNode)> =
+        node.children.iter().cloned().enumerate().collect();
+    entries.sort_by_key(|(index, child)| {
+        let is_file = child.content.is_some();
+        (is_file, child.label.to_lowercase(), *index)
+    });
     html! {
-        { for node.children.iter().enumerate().map(|(index, child)| {
+        { for entries.into_iter().map(|(index, child)| {
             let mut child_path = path.clone();
             child_path.push(index);
             html! {
@@ -174,6 +180,22 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
         })
     };
 
+    let on_menu_move = {
+        let menu_open = menu_open.clone();
+        let tree_state = tree_state.clone();
+        let path = props.path.clone();
+        let label = props.node.label.clone();
+        Callback::from(move |event: MouseEvent| {
+            event.stop_propagation();
+            menu_open.set(false);
+            tree_state.dispatch(TreeAction::SetSelected { path: path.clone() });
+            tree_state.dispatch(TreeAction::RequestMove {
+                path: path.clone(),
+                label: label.clone(),
+            });
+        })
+    };
+
     let on_menu_delete = {
         let menu_open = menu_open.clone();
         let tree_state = tree_state.clone();
@@ -191,10 +213,28 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
 
     if is_folder {
         let expanded = props.node.expanded;
+        let pending_move = tree_state.pending_move.clone();
         let on_toggle = {
             let tree_state = tree_state.clone();
             let path = props.path.clone();
             Callback::from(move |_| {
+                if let Some(pending_move) = pending_move.as_ref() {
+                    if !expanded {
+                        tree_state.dispatch(TreeAction::SetExpanded {
+                            path: path.clone(),
+                            open: true,
+                        });
+                        return;
+                    }
+                    if pending_move.path == path {
+                        return;
+                    }
+                    tree_state.dispatch(TreeAction::MoveNode {
+                        from: pending_move.path.clone(),
+                        to: path.clone(),
+                    });
+                    return;
+                }
                 tree_state.dispatch(TreeAction::SetSelected { path: path.clone() });
                 tree_state.dispatch(TreeAction::SetExpanded {
                     path: path.clone(),
@@ -253,6 +293,9 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
                                                         <button type="button" class="tree-menu-item" onclick={on_menu_edit.clone()}>
                                                             { "Editar" }
                                                         </button>
+                                                        <button type="button" class="tree-menu-item" onclick={on_menu_move.clone()}>
+                                                            { "Mover" }
+                                                        </button>
                                                         <button type="button" class="tree-menu-item danger" onclick={on_menu_delete.clone()}>
                                                             { "Remover" }
                                                         </button>
@@ -283,11 +326,21 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
 
     let label = props.node.label.clone();
     let content = props.node.content.clone();
+    let method = content.as_ref().map(|content| content.method);
+    let method_letter = method
+        .map(|value| value.as_str().chars().next().unwrap_or(' '))
+        .unwrap_or(' ');
+    let method_class = method.map(|value| format!("method-{}", value.key()));
     let on_click = {
         let tab_state = tab_state.clone();
         let tree_state = tree_state.clone();
         let path = props.path.clone();
+        let pending_move = tree_state.pending_move.clone();
         Callback::from(move |_| {
+            if pending_move.is_some() {
+                tree_state.dispatch(TreeAction::SetSelected { path: path.clone() });
+                return;
+            }
             let Some(content) = content.as_ref() else {
                 return;
             };
@@ -325,6 +378,9 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
                             onclick={on_click}
                             title={props.node.label.clone()}
                         >
+                            <span class={classes!("tree-tab-icon", method_class)} aria-hidden="true">
+                                { method_letter }
+                            </span>
                             <span class="tree-label">{ props.node.label.clone() }</span>
                         </button>
                     }
@@ -349,6 +405,9 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
                                             <div class="tree-menu">
                                                 <button type="button" class="tree-menu-item" onclick={on_menu_edit}>
                                                     { "Editar" }
+                                                </button>
+                                                <button type="button" class="tree-menu-item" onclick={on_menu_move}>
+                                                    { "Mover" }
                                                 </button>
                                                 <button type="button" class="tree-menu-item danger" onclick={on_menu_delete}>
                                                     { "Remover" }

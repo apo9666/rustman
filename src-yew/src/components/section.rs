@@ -52,6 +52,7 @@ pub fn section(props: &SectionProps) -> Html {
                 onclick={on_select}
                 title={tab.label.clone()}
             >
+                <span class="tab-icon" aria-hidden="true"></span>
                 <span>{ tab.label.clone() }</span>
                 <span class="tab-close" onclick={on_close.clone()}>{ "x" }</span>
             </button>

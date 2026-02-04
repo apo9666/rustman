@@ -314,6 +314,7 @@ pub struct TreeState {
     pub root: TreeNode,
     pub selected_path: Option<Vec<usize>>,
     pub pending_delete: Option<PendingDelete>,
+    pub pending_move: Option<PendingMove>,
 }
 
 impl Default for TreeState {
@@ -327,12 +328,19 @@ impl Default for TreeState {
             },
             selected_path: None,
             pending_delete: None,
+            pending_move: None,
         }
     }
 }
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct PendingDelete {
+    pub path: Vec<usize>,
+    pub label: String,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct PendingMove {
     pub path: Vec<usize>,
     pub label: String,
 }
@@ -346,6 +354,9 @@ pub enum TreeAction {
     RequestDelete { path: Vec<usize>, label: String },
     ClearPendingDelete,
     RemoveNode { path: Vec<usize> },
+    RequestMove { path: Vec<usize>, label: String },
+    ClearPendingMove,
+    MoveNode { from: Vec<usize>, to: Vec<usize> },
 }
 
 impl Reducible for TreeState {
@@ -379,6 +390,18 @@ impl Reducible for TreeState {
                 remove_node(&mut state.root, &path);
                 state.selected_path = None;
                 state.pending_delete = None;
+            }
+            TreeAction::RequestMove { path, label } => {
+                state.pending_move = Some(PendingMove { path, label });
+            }
+            TreeAction::ClearPendingMove => {
+                state.pending_move = None;
+            }
+            TreeAction::MoveNode { from, to } => {
+                if let Some(new_path) = move_node(&mut state.root, &from, &to) {
+                    state.selected_path = Some(new_path);
+                }
+                state.pending_move = None;
             }
         }
         Rc::new(state)
@@ -445,14 +468,60 @@ fn remove_node(node: &mut TreeNode, path: &[usize]) {
         return;
     };
 
-    if rest.is_empty() {
-        if *first < node.children.len() {
-            node.children.remove(*first);
-        }
-        return;
+    let _ = remove_node_at(node, path);
+}
+
+fn remove_node_at(node: &mut TreeNode, path: &[usize]) -> Option<TreeNode> {
+    if path.is_empty() {
+        return None;
     }
 
-    if let Some(target) = node.children.get_mut(*first) {
-        remove_node(target, rest);
+    let Some((first, rest)) = path.split_first() else {
+        return None;
+    };
+
+    if rest.is_empty() {
+        if *first < node.children.len() {
+            return Some(node.children.remove(*first));
+        }
+        return None;
     }
+
+    let target = node.children.get_mut(*first)?;
+    remove_node_at(target, rest)
+}
+
+fn move_node(root: &mut TreeNode, from: &[usize], to: &[usize]) -> Option<Vec<usize>> {
+    if from.is_empty() {
+        return None;
+    }
+    if is_prefix_path(from, to) {
+        return None;
+    }
+
+    let node = remove_node_at(root, from)?;
+    let target = node_at_path_mut(root, to)?;
+    target.children.push(node);
+    target.expanded = true;
+    let mut new_path = to.to_vec();
+    new_path.push(target.children.len().saturating_sub(1));
+    Some(new_path)
+}
+
+fn node_at_path_mut<'a>(root: &'a mut TreeNode, path: &[usize]) -> Option<&'a mut TreeNode> {
+    let mut current = root;
+    for index in path {
+        current = current.children.get_mut(*index)?;
+    }
+    Some(current)
+}
+
+fn is_prefix_path(prefix: &[usize], path: &[usize]) -> bool {
+    if prefix.len() > path.len() {
+        return false;
+    }
+    prefix
+        .iter()
+        .zip(path.iter())
+        .all(|(a, b)| a == b)
 }

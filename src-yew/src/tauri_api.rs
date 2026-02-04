@@ -56,7 +56,8 @@ fn js_value_to_text(value: JsValue) -> Result<String, JsValue> {
 
 fn decode_bytes(bytes: &Uint8Array) -> Result<String, JsValue> {
     let decoder = web_sys::TextDecoder::new()?;
-    decoder.decode_with_u8_array(bytes)
+    let data = bytes.to_vec();
+    decoder.decode_with_u8_array(&data)
 }
 
 pub fn event_listen(event: &str, handler: &JsValue) -> Result<(), JsValue> {
@@ -143,7 +144,8 @@ pub async fn fs_read_text(path: &str) -> Result<String, JsValue> {
 
 pub async fn fs_write_text(path: &str, contents: &str) -> Result<(), JsValue> {
     let encoder = web_sys::TextEncoder::new()?;
-    let bytes = encoder.encode(contents);
+    let bytes = encoder.encode_with_input(contents);
+    let payload = Uint8Array::from(bytes.as_slice());
     let headers = Object::new();
     let encoded_path = encode_uri_component(path);
     Reflect::set(
@@ -155,7 +157,7 @@ pub async fn fs_write_text(path: &str, contents: &str) -> Result<(), JsValue> {
     Reflect::set(&invoke_options, &JsValue::from_str("headers"), &headers)?;
     let _ = invoke_with_options(
         "plugin:fs|write_text_file",
-        bytes.into(),
+        payload.into(),
         Some(invoke_options.into()),
     )
     .await?;

@@ -47,7 +47,13 @@ pub fn request_content(props: &RequestContentProps) -> Html {
             {
                 match active.as_str() {
                     "headers" => html! { <HeaderTable tab_index={tab_index} headers={content.headers.clone()} /> },
-                    "body" => html! { <RequestBody tab_index={tab_index} body={content.body.clone()} /> },
+                    "body" => html! {
+                        <RequestBody
+                            tab_index={tab_index}
+                            body={content.body.clone()}
+                            formatted={content.body_formatted}
+                        />
+                    },
                     _ => html! { <ParamTable tab_index={tab_index} url={content.url.clone()} params={content.params.clone()} /> },
                 }
             }

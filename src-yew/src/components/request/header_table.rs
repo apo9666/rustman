@@ -114,7 +114,7 @@ pub fn header_table(props: &HeaderTableProps) -> Html {
                 </thead>
                 <tbody>
                     { for headers.iter().enumerate().map(|(row_index, header)| {
-                        let is_last = row_index + 1 == headers.len();
+                        let _is_last = row_index + 1 == headers.len();
                         let on_toggle = {
                             let on_toggle = on_toggle.clone();
                             Callback::from(move |event: Event| {

@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 
-use gloo_net::http::{Request, RequestBuilder};
-use http::Method;
+use js_sys::{Object, Reflect};
+use serde::Serialize;
+use wasm_bindgen::JsValue;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::SubmitEvent;
 use yew::prelude::*;
 
 use crate::state::{Header, MethodEnum, Response, TabAction, TabContent, TabState};
+use crate::tauri_api;
 use crate::utils::params_from_url;
 
 #[derive(Properties, Clone, PartialEq)]
@@ -98,52 +100,32 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
 }
 
 async fn perform_request(content: &TabContent) -> Result<Response, String> {
-    let builder = request_builder(content.method, &content.url);
-    let builder = apply_headers(builder, &content.headers);
-
-    let response = if should_send_body(content.method) {
-        let request = builder
-            .body(content.body.clone())
-            .map_err(|err| err.to_string())?;
-        request.send().await.map_err(|err| err.to_string())?
-    } else {
-        builder.send().await.map_err(|err| err.to_string())?
+    let headers = build_headers(&content.headers, content.method, &content.body);
+    let request = TauriRequest {
+        method: content.method.as_str().to_string(),
+        url: content.url.clone(),
+        headers,
+        body: if should_send_body(content.method) {
+            Some(content.body.clone())
+        } else {
+            None
+        },
     };
 
-    let mut headers = HashMap::new();
-    let mut raw_headers = HashMap::new();
-    for (key, value) in response.headers().entries() {
-        headers.insert(key.clone(), value.clone());
-        raw_headers.insert(key, vec![value]);
-    }
-
-    let data = response.text().await.map_err(|err| err.to_string())?;
-
-    Ok(Response {
-        url: response.url(),
-        status: response.status(),
-        ok: response.ok(),
-        headers,
-        raw_headers,
-        data,
-    })
+    let payload = build_request_payload(&request).map_err(|err| format!("{:?}", err))?;
+    let value = tauri_api::invoke("send_request", payload)
+        .await
+        .map_err(|err| format!("{:?}", err))?;
+    let response: Response =
+        serde_wasm_bindgen::from_value(value).map_err(|err| err.to_string())?;
+    Ok(response)
 }
 
-fn request_builder(method: MethodEnum, url: &str) -> RequestBuilder {
-    match method {
-        MethodEnum::Get => Request::get(url),
-        MethodEnum::Post => Request::post(url),
-        MethodEnum::Put => Request::put(url),
-        MethodEnum::Patch => Request::patch(url),
-        MethodEnum::Delete => Request::delete(url),
-        MethodEnum::Options => RequestBuilder::new(url).method(Method::OPTIONS),
-        MethodEnum::Head => RequestBuilder::new(url).method(Method::HEAD),
-        MethodEnum::Trace => RequestBuilder::new(url).method(Method::TRACE),
-    }
-}
+fn build_headers(headers: &[Header], method: MethodEnum, body: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let mut has_accept = false;
+    let mut has_content_type = false;
 
-fn apply_headers(builder: RequestBuilder, headers: &[Header]) -> RequestBuilder {
-    let mut builder = builder;
     for header in headers {
         if !header.enable {
             continue;
@@ -151,9 +133,24 @@ fn apply_headers(builder: RequestBuilder, headers: &[Header]) -> RequestBuilder 
         if header.key.trim().is_empty() {
             continue;
         }
-        builder = builder.header(&header.key, &header.value);
+        let key = header.key.trim();
+        if key.eq_ignore_ascii_case("accept") {
+            has_accept = true;
+        }
+        if key.eq_ignore_ascii_case("content-type") {
+            has_content_type = true;
+        }
+        map.insert(key.to_string(), header.value.clone());
     }
-    builder
+
+    if !has_accept {
+        map.insert("Accept".to_string(), "*/*".to_string());
+    }
+    if !has_content_type && should_send_body(method) && !body.trim().is_empty() {
+        map.insert("Content-Type".to_string(), "application/json".to_string());
+    }
+
+    map
 }
 
 fn should_send_body(method: MethodEnum) -> bool {
@@ -174,4 +171,61 @@ fn select_value(event: &Event) -> String {
         .and_then(|target| target.dyn_into::<web_sys::HtmlSelectElement>().ok())
         .map(|input| input.value())
         .unwrap_or_default()
+}
+
+#[derive(Debug, Serialize)]
+struct TauriRequest {
+    method: String,
+    url: String,
+    headers: HashMap<String, String>,
+    body: Option<String>,
+}
+
+fn build_request_payload(request: &TauriRequest) -> Result<JsValue, JsValue> {
+    let payload = Object::new();
+    let request_obj = Object::new();
+    let headers_obj = Object::new();
+
+    Reflect::set(
+        &request_obj,
+        &JsValue::from_str("method"),
+        &JsValue::from_str(&request.method),
+    )?;
+    Reflect::set(
+        &request_obj,
+        &JsValue::from_str("url"),
+        &JsValue::from_str(&request.url),
+    )?;
+
+    for (key, value) in &request.headers {
+        Reflect::set(
+            &headers_obj,
+            &JsValue::from_str(key),
+            &JsValue::from_str(value),
+        )?;
+    }
+    Reflect::set(
+        &request_obj,
+        &JsValue::from_str("headers"),
+        &headers_obj,
+    )?;
+
+    let body_value = request
+        .body
+        .as_ref()
+        .map(|value| JsValue::from_str(value))
+        .unwrap_or(JsValue::NULL);
+    Reflect::set(
+        &request_obj,
+        &JsValue::from_str("body"),
+        &body_value,
+    )?;
+
+    Reflect::set(
+        &payload,
+        &JsValue::from_str("request"),
+        &request_obj,
+    )?;
+
+    Ok(payload.into())
 }

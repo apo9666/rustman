@@ -41,8 +41,14 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
 
     let has_children = !props.node.children.is_empty();
     let is_folder = props.node.content.is_none();
+    let is_selected = tree_state
+        .selected_path
+        .as_ref()
+        .map(|path| path == &props.path)
+        .unwrap_or(false);
     let is_editing = use_state(|| false);
     let draft = use_state(|| props.node.label.clone());
+    let menu_open = use_state(|| false);
 
     {
         let label = props.node.label.clone();
@@ -57,107 +63,153 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
         return html! { <>{ render_children(&props.node, &props.path) }</> };
     }
 
+    let commit_rename = {
+        let tree_state = tree_state.clone();
+        let path = props.path.clone();
+        let draft = draft.clone();
+        let is_editing = is_editing.clone();
+        Rc::new(move || {
+            let label = draft.trim();
+            if label.is_empty() {
+                is_editing.set(false);
+                return;
+            }
+            tree_state.dispatch(TreeAction::Rename {
+                path: path.clone(),
+                label: label.to_string(),
+            });
+            is_editing.set(false);
+        })
+    };
+
+    let on_rename = {
+        let is_editing = is_editing.clone();
+        let draft = draft.clone();
+        let label = props.node.label.clone();
+        let tree_state = tree_state.clone();
+        let path = props.path.clone();
+        Callback::from(move |event: MouseEvent| {
+            event.stop_propagation();
+            draft.set(label.clone());
+            is_editing.set(true);
+            tree_state.dispatch(TreeAction::SetSelected { path: path.clone() });
+        })
+    };
+
+    let on_draft_change = {
+        let draft = draft.clone();
+        Callback::from(move |event: InputEvent| {
+            let value = event_target_value(&event);
+            draft.set(value);
+        })
+    };
+
+    let on_draft_blur = {
+        let commit_rename = commit_rename.clone();
+        Callback::from(move |_| {
+            commit_rename();
+        })
+    };
+
+    let on_draft_keydown = {
+        let commit_rename = commit_rename.clone();
+        let is_editing = is_editing.clone();
+        Callback::from(move |event: KeyboardEvent| match event.key().as_str() {
+            "Enter" => {
+                event.prevent_default();
+                commit_rename();
+            }
+            "Escape" => {
+                event.prevent_default();
+                is_editing.set(false);
+            }
+            _ => {}
+        })
+    };
+
+    let on_menu_toggle = {
+        let menu_open = menu_open.clone();
+        Callback::from(move |event: MouseEvent| {
+            event.stop_propagation();
+            menu_open.set(!*menu_open);
+        })
+    };
+
+    let add_folder = {
+        let tree_state = tree_state.clone();
+        let path = props.path.clone();
+        let siblings = props.node.children.clone();
+        Rc::new(move || {
+            let label = prompt_folder_name()
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| next_folder_name(&siblings));
+            tree_state.dispatch(TreeAction::AddChild {
+                path: path.clone(),
+                node: TreeNode {
+                    label,
+                    content: None,
+                    expanded: true,
+                    children: Vec::new(),
+                },
+            });
+        })
+    };
+
+    let on_menu_add_folder = {
+        let menu_open = menu_open.clone();
+        let add_folder = add_folder.clone();
+        Callback::from(move |event: MouseEvent| {
+            event.stop_propagation();
+            menu_open.set(false);
+            add_folder();
+        })
+    };
+
+    let on_menu_edit = {
+        let menu_open = menu_open.clone();
+        let on_rename = on_rename.clone();
+        Callback::from(move |event: MouseEvent| {
+            menu_open.set(false);
+            on_rename.emit(event);
+        })
+    };
+
+    let on_menu_delete = {
+        let menu_open = menu_open.clone();
+        let tree_state = tree_state.clone();
+        let path = props.path.clone();
+        let label = props.node.label.clone();
+        Callback::from(move |event: MouseEvent| {
+            event.stop_propagation();
+            menu_open.set(false);
+            tree_state.dispatch(TreeAction::RequestDelete {
+                path: path.clone(),
+                label: label.clone(),
+            });
+        })
+    };
+
     if is_folder {
         let expanded = props.node.expanded;
         let on_toggle = {
             let tree_state = tree_state.clone();
             let path = props.path.clone();
             Callback::from(move |_| {
+                tree_state.dispatch(TreeAction::SetSelected { path: path.clone() });
                 tree_state.dispatch(TreeAction::SetExpanded {
                     path: path.clone(),
                     open: !expanded,
                 });
             })
         };
-        let on_add_folder = {
-            let tree_state = tree_state.clone();
-            let path = props.path.clone();
-            let siblings = props.node.children.clone();
-            Callback::from(move |event: MouseEvent| {
-                event.stop_propagation();
-                let label = prompt_folder_name()
-                    .filter(|name| !name.trim().is_empty())
-                    .unwrap_or_else(|| next_folder_name(&siblings));
-                tree_state.dispatch(TreeAction::AddChild {
-                    path: path.clone(),
-                    node: TreeNode {
-                        label,
-                        content: None,
-                        expanded: true,
-                        children: Vec::new(),
-                    },
-                });
-            })
-        };
-
-        let commit_rename = {
-            let tree_state = tree_state.clone();
-            let path = props.path.clone();
-            let draft = draft.clone();
-            let is_editing = is_editing.clone();
-            Rc::new(move || {
-                let label = draft.trim();
-                if label.is_empty() {
-                    is_editing.set(false);
-                    return;
-                }
-                tree_state.dispatch(TreeAction::Rename {
-                    path: path.clone(),
-                    label: label.to_string(),
-                });
-                is_editing.set(false);
-            })
-        };
-
-        let on_rename = {
-            let is_editing = is_editing.clone();
-            let draft = draft.clone();
-            let label = props.node.label.clone();
-            Callback::from(move |event: MouseEvent| {
-                event.stop_propagation();
-                draft.set(label.clone());
-                is_editing.set(true);
-            })
-        };
-
-        let on_draft_change = {
-            let draft = draft.clone();
-            Callback::from(move |event: InputEvent| {
-                let value = event_target_value(&event);
-                draft.set(value);
-            })
-        };
-
-        let on_draft_blur = {
-            let commit_rename = commit_rename.clone();
-            Callback::from(move |_| {
-                commit_rename();
-            })
-        };
-
-        let on_draft_keydown = {
-            let commit_rename = commit_rename.clone();
-            let is_editing = is_editing.clone();
-            Callback::from(move |event: KeyboardEvent| match event.key().as_str() {
-                "Enter" => {
-                    event.prevent_default();
-                    commit_rename();
-                }
-                "Escape" => {
-                    event.prevent_default();
-                    is_editing.set(false);
-                }
-                _ => {}
-            })
-        };
 
         return html! {
             <div>
-                <div class="tree-row-wrap">
+                <div class={classes!("tree-row-wrap", if is_selected { "selected" } else { "" })}>
                     {
                         if *is_editing {
                             html! {
-                                <div class="tree-row tree-row-edit">
+                                <div class={classes!("tree-row", "tree-row-edit", if is_selected { "selected" } else { "" })}>
                                     <span class={classes!("tree-caret", if expanded { "expanded" } else { "" })}></span>
                                     <input
                                         class="tree-rename-input"
@@ -171,7 +223,7 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
                             }
                         } else {
                             html! {
-                                <button type="button" class="tree-row" onclick={on_toggle}>
+                                <button type="button" class={classes!("tree-row", if is_selected { "selected" } else { "" })} onclick={on_toggle}>
                                     <span class={classes!("tree-caret", if expanded { "expanded" } else { "" })}></span>
                                     <span class="tree-label">{ props.node.label.clone() }</span>
                                 </button>
@@ -182,22 +234,35 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
                         if !*is_editing {
                             html! {
                                 <div class="tree-row-actions">
-                                    <button
-                                        type="button"
-                                        class="tree-row-add"
-                                        title="Add folder"
-                                        onclick={on_add_folder}
-                                    >
-                                        { "+" }
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="tree-row-rename"
-                                        title="Rename folder"
-                                        onclick={on_rename}
-                                    >
-                                        { "✎" }
-                                    </button>
+                                    <div class="tree-menu-wrap">
+                                        <button
+                                            type="button"
+                                            class="tree-row-menu"
+                                            title="Mais ações"
+                                            onclick={on_menu_toggle}
+                                        >
+                                            { "⋯" }
+                                        </button>
+                                        {
+                                            if *menu_open {
+                                                html! {
+                                                    <div class="tree-menu">
+                                                        <button type="button" class="tree-menu-item" onclick={on_menu_add_folder.clone()}>
+                                                            { "Nova pasta" }
+                                                        </button>
+                                                        <button type="button" class="tree-menu-item" onclick={on_menu_edit.clone()}>
+                                                            { "Editar" }
+                                                        </button>
+                                                        <button type="button" class="tree-menu-item danger" onclick={on_menu_delete.clone()}>
+                                                            { "Remover" }
+                                                        </button>
+                                                    </div>
+                                                }
+                                            } else {
+                                                html! {}
+                                            }
+                                        }
+                                    </div>
                                 </div>
                             }
                         } else {
@@ -220,10 +285,13 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
     let content = props.node.content.clone();
     let on_click = {
         let tab_state = tab_state.clone();
+        let tree_state = tree_state.clone();
+        let path = props.path.clone();
         Callback::from(move |_| {
             let Some(content) = content.as_ref() else {
                 return;
             };
+            tree_state.dispatch(TreeAction::SetSelected { path: path.clone() });
             let new_content = TabContent::from_node(content);
             tab_state.dispatch(TabAction::OpenTab {
                 label: label.clone(),
@@ -233,15 +301,72 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
     };
 
     html! {
-        <button
-            type="button"
-            class="tree-row"
-            onclick={on_click}
-            title={props.node.label.clone()}
-        >
-            <span class="tree-leaf-icon"></span>
-            <span class="tree-label">{ props.node.label.clone() }</span>
-        </button>
+        <div class={classes!("tree-row-wrap", if is_selected { "selected" } else { "" })}>
+            {
+                if *is_editing {
+                    html! {
+                        <div class={classes!("tree-row", "tree-row-edit", if is_selected { "selected" } else { "" })}>
+                            <span class="tree-caret-placeholder"></span>
+                            <input
+                                class="tree-rename-input"
+                                value={(*draft).clone()}
+                                oninput={on_draft_change}
+                                onblur={on_draft_blur}
+                                onkeydown={on_draft_keydown}
+                                autofocus=true
+                            />
+                        </div>
+                    }
+                } else {
+                    html! {
+                        <button
+                            type="button"
+                            class={classes!("tree-row", if is_selected { "selected" } else { "" })}
+                            onclick={on_click}
+                            title={props.node.label.clone()}
+                        >
+                            <span class="tree-label">{ props.node.label.clone() }</span>
+                        </button>
+                    }
+                }
+            }
+            {
+                if !*is_editing {
+                    html! {
+                        <div class="tree-row-actions">
+                            <div class="tree-menu-wrap">
+                                <button
+                                    type="button"
+                                    class="tree-row-menu"
+                                    title="Mais ações"
+                                    onclick={on_menu_toggle}
+                                >
+                                    { "⋯" }
+                                </button>
+                                {
+                                    if *menu_open {
+                                        html! {
+                                            <div class="tree-menu">
+                                                <button type="button" class="tree-menu-item" onclick={on_menu_edit}>
+                                                    { "Editar" }
+                                                </button>
+                                                <button type="button" class="tree-menu-item danger" onclick={on_menu_delete}>
+                                                    { "Remover" }
+                                                </button>
+                                            </div>
+                                        }
+                                    } else {
+                                        html! {}
+                                    }
+                                }
+                            </div>
+                        </div>
+                    }
+                } else {
+                    html! {}
+                }
+            }
+        </div>
     }
 }
 

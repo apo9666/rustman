@@ -7,7 +7,7 @@ use yew::prelude::*;
 use crate::components::section::Section;
 use crate::components::side::Side;
 use crate::openapi::build_tree_from_openapi;
-use crate::state::{TabState, TreeAction, TreeState};
+use crate::state::{Tab, TabAction, TabState, TreeAction, TreeNode, TreeState};
 use crate::tauri_api;
 
 #[function_component(App)]
@@ -18,22 +18,33 @@ pub fn app() -> Html {
     let sidebar_width = use_state(|| 280.0);
     let dragging = use_state(|| false);
     let drag_state = use_mut_ref(|| DragState::default());
+    let save_dialog_open = use_state(|| false);
+    let save_name = use_state(String::new);
+    let pending_tab = use_state(|| None::<Tab>);
+    let pending_tab_index = use_state(|| None::<usize>);
+
+    let open_save_dialog = {
+        let save_dialog_open = save_dialog_open.clone();
+        let save_name = save_name.clone();
+        let pending_tab = pending_tab.clone();
+        let pending_tab_index = pending_tab_index.clone();
+        Callback::from(move |(index, tab): (usize, Tab)| {
+            save_name.set(tab.label.clone());
+            pending_tab.set(Some(tab));
+            pending_tab_index.set(Some(index));
+            save_dialog_open.set(true);
+        })
+    };
 
     let on_save = {
         let tab_state = tab_state.clone();
+        let open_save_dialog = open_save_dialog.clone();
         Callback::from(move |_| {
-            let tab_state = tab_state.clone();
-            spawn_local(async move {
-                let Ok(Some(path)) = tauri_api::dialog_save().await else {
-                    return;
-                };
-                let body = tab_state
-                    .tabs
-                    .get(tab_state.active_tab_id)
-                    .map(|tab| tab.content.body.clone())
-                    .unwrap_or_default();
-                let _ = tauri_api::fs_write_text(&path, &body).await;
-            });
+            let index = tab_state.active_tab_id;
+            let Some(tab) = tab_state.tabs.get(index).cloned() else {
+                return;
+            };
+            open_save_dialog.emit((index, tab));
         })
     };
 
@@ -54,9 +65,11 @@ pub fn app() -> Html {
                     }
                     "save-event" => {
                         let tab_state = tab_state.clone();
-                        spawn_local(async move {
-                            save_active_body(tab_state).await;
-                        });
+                        let index = tab_state.active_tab_id;
+                        let Some(tab) = tab_state.tabs.get(index).cloned() else {
+                            return;
+                        };
+                        open_save_dialog.emit((index, tab));
                     }
                     _ => {}
                 }
@@ -131,9 +144,11 @@ pub fn app() -> Html {
         });
     }
 
+    let pending_delete = tree_state.pending_delete.clone();
+
     html! {
-        <ContextProvider<UseReducerHandle<TreeState>> context={tree_state}>
-            <ContextProvider<UseReducerHandle<TabState>> context={tab_state}>
+        <ContextProvider<UseReducerHandle<TreeState>> context={tree_state.clone()}>
+            <ContextProvider<UseReducerHandle<TabState>> context={tab_state.clone()}>
                 <div class="app" ref={app_ref}>
                     <aside class="sidebar" style={format!("width: {}px;", *sidebar_width)}>
                         <Side />
@@ -143,6 +158,165 @@ pub fn app() -> Html {
                         <Section on_save={on_save} />
                     </main>
                 </div>
+                {
+                    if *save_dialog_open {
+                        let on_save_name_change = {
+                            let save_name = save_name.clone();
+                            Callback::from(move |event: InputEvent| {
+                                save_name.set(event_target_value(&event));
+                            })
+                        };
+
+                        let on_confirm = {
+                            let tree_state = tree_state.clone();
+                            let tab_state = tab_state.clone();
+                            let pending_tab = pending_tab.clone();
+                            let pending_tab_index = pending_tab_index.clone();
+                            let save_name = save_name.clone();
+                            let save_dialog_open = save_dialog_open.clone();
+                            Callback::from(move |_| {
+                                let Some(tab) = (*pending_tab).clone() else {
+                                    save_dialog_open.set(false);
+                                    return;
+                                };
+
+                                let name = (*save_name).trim().to_string();
+                                let label = if name.is_empty() {
+                                    tab.label.clone()
+                                } else {
+                                    name
+                                };
+
+                                let root = tree_state.root.clone();
+                                let selected = tree_state.selected_path.clone();
+                                let target_path = resolve_save_path(&root, selected.as_ref());
+
+                                tree_state.dispatch(TreeAction::AddChild {
+                                    path: target_path,
+                                    node: TreeNode {
+                                        label: label.clone(),
+                                        content: Some(tab.content.clone()),
+                                        expanded: false,
+                                        children: Vec::new(),
+                                    },
+                                });
+
+                                tab_state.dispatch(TabAction::RenameTab {
+                                    index: tab_state.active_tab_id,
+                                    label,
+                                });
+
+                                pending_tab.set(None);
+                                pending_tab_index.set(None);
+                                save_dialog_open.set(false);
+                            })
+                        };
+
+                        let on_cancel = {
+                            let pending_tab = pending_tab.clone();
+                            let pending_tab_index = pending_tab_index.clone();
+                            let save_dialog_open = save_dialog_open.clone();
+                            Callback::from(move |_| {
+                                pending_tab.set(None);
+                                pending_tab_index.set(None);
+                                save_dialog_open.set(false);
+                            })
+                        };
+
+                        let on_confirm_click = {
+                            let on_confirm = on_confirm.clone();
+                            Callback::from(move |_event: MouseEvent| on_confirm.emit(()))
+                        };
+
+                        let on_cancel_click = {
+                            let on_cancel = on_cancel.clone();
+                            Callback::from(move |_event: MouseEvent| on_cancel.emit(()))
+                        };
+
+                        let on_keydown = {
+                            let on_confirm = on_confirm.clone();
+                            let on_cancel = on_cancel.clone();
+                            Callback::from(move |event: KeyboardEvent| match event.key().as_str() {
+                                "Enter" => {
+                                    event.prevent_default();
+                                    on_confirm.emit(());
+                                }
+                                "Escape" => {
+                                    event.prevent_default();
+                                    on_cancel.emit(());
+                                }
+                                _ => {}
+                            })
+                        };
+
+                        html! {
+                            <div class="modal-backdrop">
+                                <div class="modal">
+                                    <h2 class="modal-title">{ "Salvar no Tree" }</h2>
+                                    <label class="modal-label" for="save-name">{ "Nome da aba" }</label>
+                                    <input
+                                        id="save-name"
+                                        class="modal-input"
+                                        value={(*save_name).clone()}
+                                        oninput={on_save_name_change}
+                                        onkeydown={on_keydown}
+                                        autofocus=true
+                                    />
+                                    <div class="modal-actions">
+                                        <button class="button secondary" onclick={on_cancel_click}>{ "Cancelar" }</button>
+                                        <button class="button" onclick={on_confirm_click}>{ "Salvar" }</button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    } else {
+                        html! {}
+                    }
+                }
+                {
+                    if let Some(pending) = pending_delete {
+                        let label = pending.label.clone();
+                        let path = pending.path.clone();
+                        let on_confirm = {
+                            let tree_state = tree_state.clone();
+                            Callback::from(move |_| {
+                                tree_state.dispatch(TreeAction::RemoveNode { path: path.clone() });
+                            })
+                        };
+
+                        let on_cancel = {
+                            let tree_state = tree_state.clone();
+                            Callback::from(move |_| {
+                                tree_state.dispatch(TreeAction::ClearPendingDelete);
+                            })
+                        };
+
+                        let on_confirm_click = {
+                            let on_confirm = on_confirm.clone();
+                            Callback::from(move |_event: MouseEvent| on_confirm.emit(()))
+                        };
+
+                        let on_cancel_click = {
+                            let on_cancel = on_cancel.clone();
+                            Callback::from(move |_event: MouseEvent| on_cancel.emit(()))
+                        };
+
+                        html! {
+                            <div class="modal-backdrop">
+                                <div class="modal">
+                                    <h2 class="modal-title">{ "Confirmar remoção" }</h2>
+                                    <p class="modal-text">{ format!("Remover \"{}\" do tree?", label) }</p>
+                                    <div class="modal-actions">
+                                        <button class="button secondary" onclick={on_cancel_click}>{ "Cancelar" }</button>
+                                        <button class="button danger" onclick={on_confirm_click}>{ "Remover" }</button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    } else {
+                        html! {}
+                    }
+                }
             </ContextProvider<UseReducerHandle<TabState>>>
         </ContextProvider<UseReducerHandle<TreeState>>>
     }
@@ -173,14 +347,44 @@ async fn open_openapi(tree_state: UseReducerHandle<TreeState>) {
     tree_state.dispatch(TreeAction::AddRootChild(node));
 }
 
-async fn save_active_body(tab_state: UseReducerHandle<TabState>) {
-    let Ok(Some(path)) = tauri_api::dialog_save().await else {
-        return;
-    };
-    let body = tab_state
-        .tabs
-        .get(tab_state.active_tab_id)
-        .map(|tab| tab.content.body.clone())
-        .unwrap_or_default();
-    let _ = tauri_api::fs_write_text(&path, &body).await;
+fn resolve_save_path(root: &TreeNode, selected: Option<&Vec<usize>>) -> Vec<usize> {
+    if let Some(path) = selected {
+        if is_folder_path(root, path) {
+            return path.clone();
+        }
+
+        if let Some(parent) = path.split_last().map(|(_, parent)| parent.to_vec()) {
+            if is_folder_path(root, &parent) {
+                return parent;
+            }
+        }
+    }
+
+    Vec::new()
+}
+
+fn event_target_value(event: &InputEvent) -> String {
+    event
+        .target()
+        .and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
+        .map(|input| input.value())
+        .unwrap_or_default()
+}
+
+fn is_folder_path(root: &TreeNode, path: &[usize]) -> bool {
+    node_at_path(root, path)
+        .map(|node| node.content.is_none())
+        .unwrap_or(false)
+}
+
+fn node_at_path<'a>(root: &'a TreeNode, path: &[usize]) -> Option<&'a TreeNode> {
+    if path.is_empty() {
+        return Some(root);
+    }
+
+    let mut current = root;
+    for index in path {
+        current = current.children.get(*index)?;
+    }
+    Some(current)
 }

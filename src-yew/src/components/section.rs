@@ -6,7 +6,7 @@ use crate::components::request::content::RequestContent;
 use crate::components::request::title::RequestTitle;
 use crate::components::request::url::RequestUrl;
 use crate::components::response::content::ResponseContent;
-use crate::state::{TabAction, TabState};
+use crate::state::{TabAction, TabState, TreeState};
 
 #[derive(Properties, Clone, PartialEq)]
 pub struct SectionProps {
@@ -20,6 +20,11 @@ pub fn section(props: &SectionProps) -> Html {
     let Some(tab_state) = tab_state else {
         return html! {};
     };
+    let tree_state = use_context::<UseReducerHandle<TreeState>>();
+    let servers_empty = tree_state
+        .as_ref()
+        .map(|state| state.servers.is_empty())
+        .unwrap_or(true);
 
     let panel_ref = use_node_ref();
     let request_height = use_state(|| 320.0);
@@ -148,7 +153,7 @@ pub fn section(props: &SectionProps) -> Html {
         <div class="tabs">
             <div class="tab-list">
                 { for triggers }
-                <button class="tab-add" onclick={on_add} disabled={tabs.is_empty()}>{ "+" }</button>
+                <button class="tab-add" onclick={on_add} disabled={servers_empty}>{ "+" }</button>
             </div>
             {
                 if let Some(tab) = active_tab {

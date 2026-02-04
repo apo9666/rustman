@@ -26,12 +26,37 @@ pub fn side() -> Html {
         })
     };
 
+    let on_cancel_move = {
+        let tree_state = tree_state.clone();
+        Callback::from(move |_| {
+            tree_state.dispatch(TreeAction::ClearPendingMove);
+        })
+    };
+
     html! {
         <nav class="tree-panel">
             <div class="tree-header">
                 <span>{ "Folders" }</span>
                 <button class="tree-add-root" type="button" onclick={on_add_root}>{ "+" }</button>
             </div>
+            {
+                if let Some(pending_move) = tree_state.pending_move.as_ref() {
+                    html! {
+                        <div class="tree-banner">
+                            <div class="tree-banner-text">
+                                <span class="tree-banner-title">{ "Mover:" }</span>
+                                <span class="tree-banner-label">{ pending_move.label.clone() }</span>
+                                <span class="muted">{ "Selecione a pasta de destino." }</span>
+                            </div>
+                            <button class="tree-banner-cancel" type="button" onclick={on_cancel_move.clone()}>
+                                { "Cancelar" }
+                            </button>
+                        </div>
+                    }
+                } else {
+                    html! {}
+                }
+            }
             <div class="tree">
                 <TreeDirectory node={tree_state.root.clone()} />
             </div>

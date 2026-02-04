@@ -177,6 +177,17 @@ pub async fn fs_write_text_with_options(
     Ok(())
 }
 
+pub async fn set_window_title(title: &str) -> Result<(), JsValue> {
+    let payload = Object::new();
+    Reflect::set(
+        &payload,
+        &JsValue::from_str("title"),
+        &JsValue::from_str(title),
+    )?;
+    let _ = invoke("set_window_title", payload.into()).await?;
+    Ok(())
+}
+
 pub fn js_error_to_string(value: &JsValue) -> String {
     value
         .as_string()

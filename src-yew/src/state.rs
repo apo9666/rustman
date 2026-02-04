@@ -119,6 +119,7 @@ pub struct TabContent {
     pub body_formatted: bool,
     pub headers: Vec<Header>,
     pub params: Vec<Param>,
+    pub path_params: Vec<Param>,
     pub response: Response,
 }
 
@@ -131,6 +132,7 @@ impl TabContent {
             body_formatted: false,
             headers: content.headers.clone(),
             params: content.params.clone(),
+            path_params: content.path_params.clone(),
             response: Response::default(),
         }
     }
@@ -156,6 +158,11 @@ impl Default for TabContent {
                 },
             ],
             params: vec![Param {
+                enable: true,
+                key: String::new(),
+                value: String::new(),
+            }],
+            path_params: vec![Param {
                 enable: true,
                 key: String::new(),
                 value: String::new(),
@@ -207,6 +214,10 @@ pub enum TabAction {
         index: usize,
         url: String,
         params: Vec<Param>,
+    },
+    UpdatePathParams {
+        index: usize,
+        path_params: Vec<Param>,
     },
     SetResponse { index: usize, response: Response },
 }
@@ -307,6 +318,12 @@ impl Reducible for TabState {
                     if let Some(label) = tab_label_from_url(&tab.content.url) {
                         tab.label = label;
                     }
+                }
+            }
+            TabAction::UpdatePathParams { index, path_params } => {
+                if let Some(tab) = state.tabs.get_mut(index) {
+                    tab.content.path_params = path_params;
+                    tab.dirty = true;
                 }
             }
             TabAction::SetResponse { index, response } => {

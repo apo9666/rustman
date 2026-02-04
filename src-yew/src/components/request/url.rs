@@ -14,7 +14,7 @@ use crate::state::{
     Header, MethodEnum, Param, Response, TabAction, TabContent, TabState, TreeState,
 };
 use crate::tauri_api;
-use crate::utils::params_from_url;
+use crate::utils::{params_from_url, path_params_from_url};
 
 #[derive(Properties, Clone, PartialEq)]
 pub struct RequestUrlProps {
@@ -55,16 +55,36 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
             let value = input_value(&event);
             let normalized = normalize_request_path(&value);
             let base_path = strip_query(&normalized);
+            let base_path_clone = base_path.clone();
+            let existing_path_params = tab_state
+                .tabs
+                .get(index)
+                .map(|tab| tab.content.path_params.clone())
+                .unwrap_or_else(|| vec![Param {
+                    enable: true,
+                    key: String::new(),
+                    value: String::new(),
+                }]);
             if let Some(params) = params_from_url(&normalized) {
                 tab_state.dispatch(TabAction::UpdateUrlAndParams {
                     index,
-                    url: base_path,
+                    url: base_path_clone,
                     params,
+                });
+                let next_path_params = path_params_from_url(&base_path, &existing_path_params);
+                tab_state.dispatch(TabAction::UpdatePathParams {
+                    index,
+                    path_params: next_path_params,
                 });
             } else {
                 tab_state.dispatch(TabAction::UpdateUrl {
                     index,
-                    url: base_path,
+                    url: base_path_clone,
+                });
+                let next_path_params = path_params_from_url(&base_path, &existing_path_params);
+                tab_state.dispatch(TabAction::UpdatePathParams {
+                    index,
+                    path_params: next_path_params,
                 });
             }
         })
@@ -253,11 +273,12 @@ fn build_request_payload(request: &TauriRequest) -> Result<JsValue, JsValue> {
 
 fn build_request_url(content: &TabContent, server: Option<&str>) -> Result<String, String> {
     let path = normalize_request_path(&content.url);
+    let path_with_values = apply_path_params(&path, &content.path_params);
     if path.is_empty() {
         return Err("Path vazio.".to_string());
     }
 
-    let path_with_query = apply_params(&path, &content.params);
+    let path_with_query = apply_params(&path_with_values, &content.params);
 
     if let Ok(url) = Url::parse(&path_with_query) {
         if matches!(url.scheme(), "http" | "https") {
@@ -327,4 +348,48 @@ fn apply_params(base: &str, params: &[Param]) -> String {
     } else {
         format!("{}?{}", base, query)
     }
+}
+
+fn apply_path_params(base: &str, params: &[Param]) -> String {
+    let mut values = std::collections::HashMap::new();
+    for param in params {
+        if !param.enable {
+            continue;
+        }
+        let key = param.key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        let value = param.value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        let encoded: String = url::form_urlencoded::byte_serialize(value.as_bytes()).collect();
+        values.insert(key.to_string(), encoded);
+    }
+
+    let mut result = String::new();
+    let mut chars = base.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            let mut key = String::new();
+            while let Some(next) = chars.next() {
+                if next == '}' {
+                    break;
+                }
+                key.push(next);
+            }
+            let trimmed = key.trim();
+            if let Some(value) = values.get(trimmed) {
+                result.push_str(value);
+            } else {
+                result.push('{');
+                result.push_str(&key);
+                result.push('}');
+            }
+            continue;
+        }
+        result.push(ch);
+    }
+    result
 }

@@ -178,11 +178,14 @@ pub fn app() -> Html {
             <ContextProvider<UseReducerHandle<TabState>> context={tab_state.clone()}>
                 <div class="app" ref={app_ref}>
                     <aside class="sidebar" style={format!("width: {}px;", *sidebar_width)}>
-                        <Side on_add_server={on_open_add_server} on_add_tag={on_open_add_tag} />
+                        <Side
+                            on_add_server={on_open_add_server.clone()}
+                            on_add_tag={on_open_add_tag}
+                        />
                     </aside>
                     <div class="sidebar-resize" onmousedown={on_resize_start}></div>
                     <main class="main">
-                        <Section on_save={on_save} />
+                        <Section on_save={on_save} on_add_server={on_open_add_server.clone()} />
                     </main>
                 </div>
                 {
@@ -196,6 +199,7 @@ pub fn app() -> Html {
 
                         let on_confirm = {
                             let tree_state = tree_state.clone();
+                            let tab_state = tab_state.clone();
                             let server_dialog = server_dialog.clone();
                             let server_input = server_input.clone();
                             Callback::from(move |_| {
@@ -209,6 +213,9 @@ pub fn app() -> Html {
                                         let new_index = tree_state.servers.len();
                                         tree_state.dispatch(TreeAction::AddServer { label: url });
                                         tree_state.dispatch(TreeAction::SetSelectedServer { index: new_index });
+                                        if tab_state.tabs.is_empty() {
+                                            tab_state.dispatch(TabAction::AddTab);
+                                        }
                                     }
                                     ServerDialogMode::AddTag => {
                                         let label = if value.is_empty() {

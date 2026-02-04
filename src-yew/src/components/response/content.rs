@@ -1,8 +1,12 @@
+use js_sys::{Object, Reflect};
+use wasm_bindgen::JsValue;
+use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
 
 use crate::components::json_highlight::{highlight_json, parse_json_value};
 use crate::state::TabAction;
 use crate::state::TabState;
+use crate::tauri_api;
 
 #[derive(Properties, Clone, PartialEq)]
 pub struct ResponseContentProps {
@@ -40,11 +44,33 @@ pub fn response_content(props: &ResponseContentProps) -> Html {
         })
     };
 
+    let on_preview = {
+        let data_for_preview = data.clone();
+        Callback::from(move |_| {
+            let html = data_for_preview.clone();
+            spawn_local(async move {
+                if html.trim().is_empty() {
+                    return;
+                }
+                let payload = Object::new();
+                if Reflect::set(&payload, &JsValue::from_str("html"), &JsValue::from_str(&html))
+                    .is_err()
+                {
+                    return;
+                }
+                let _ = tauri_api::invoke("open_preview", payload.into()).await;
+            });
+        })
+    };
+
     html! {
         <div class="response">
             <div class="request-title">
                 <h1>{ "Response" }</h1>
-                <button class="button secondary" onclick={on_format}>{ "Format" }</button>
+                <div class="request-actions">
+                    <button class="button secondary" onclick={on_preview}>{ "Preview" }</button>
+                    <button class="button secondary" onclick={on_format}>{ "Format" }</button>
+                </div>
             </div>
             <div class="response-body">
                 {

@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.rustman.dev",
   "build": {
-    "beforeBuildCommand": "cd src-yew && trunk build --release",
-    "beforeDevCommand": "cd src-yew && trunk serve --port 1420",
+    "beforeBuildCommand": "cd src-yew || cd ../src-yew && trunk build --release",
+    "beforeDevCommand": "cd src-yew || cd ../src-yew && trunk serve --port 1420",
     "devUrl": "http://localhost:1420",
-    "frontendDist": "src-yew/dist"
+    "frontendDist": "../src-yew/dist"
   },
   "app": {
     "windows": [

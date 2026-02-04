@@ -389,7 +389,6 @@ pub enum TreeAction {
     AddServer { label: String },
     RemoveServer { index: usize },
     SetSelectedServer { index: usize },
-    SetServers { servers: Vec<String> },
     SetTree { root: TreeNode, servers: Vec<String> },
     AddChild { path: Vec<usize>, node: TreeNode },
     ReplaceNode { path: Vec<usize>, node: TreeNode },
@@ -431,14 +430,6 @@ impl Reducible for TreeState {
                 if index < state.servers.len() {
                     state.selected_server = Some(index);
                 }
-            }
-            TreeAction::SetServers { servers } => {
-                state.servers = servers;
-                state.selected_server = if state.servers.is_empty() {
-                    None
-                } else {
-                    Some(0)
-                };
             }
             TreeAction::SetTree { root, servers } => {
                 state.root = root;

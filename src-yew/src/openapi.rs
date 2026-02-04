@@ -54,7 +54,7 @@ pub fn build_tree_from_openapi(text: &str) -> Result<(TreeNode, Vec<String>), St
             let Some(method_value) = path_obj.get(method_key) else {
                 continue;
             };
-            let content = convert_content(path_key, *method, method_value);
+                let content = convert_content(path_key, *method, method_value, &json);
             let node = TreeNode {
                 label: path_key.clone(),
                 content: Some(content),
@@ -106,9 +106,14 @@ pub fn build_openapi_from_tree(root: &TreeNode, servers: &[String]) -> Result<St
     build_openapi_from_tree_nodes(root, servers)
 }
 
-fn convert_content(path_key: &str, method: MethodEnum, method_value: &Value) -> TabContent {
+fn convert_content(
+    path_key: &str,
+    method: MethodEnum,
+    method_value: &Value,
+    root: &Value,
+) -> TabContent {
     let path = normalize_path(path_key);
-    let body = extract_body(method_value);
+    let body = extract_body(method_value, root);
     let path_params = extract_path_params(path_key);
     TabContent {
         url: path,
@@ -119,17 +124,152 @@ fn convert_content(path_key: &str, method: MethodEnum, method_value: &Value) -> 
     }
 }
 
-fn extract_body(method_value: &Value) -> String {
-    let Some(example) = method_value
-        .get("requestBody")
-        .and_then(|value| value.get("content"))
-        .and_then(|value| value.get("application/json"))
-        .and_then(|value| value.get("example"))
-    else {
+fn extract_body(method_value: &Value, root: &Value) -> String {
+    let Some(request_body) = method_value.get("requestBody") else {
+        return String::new();
+    };
+    let request_body = resolve_ref(request_body, root, 0).unwrap_or(request_body);
+    let Some(content) = request_body.get("content").and_then(|value| value.as_object()) else {
+        return String::new();
+    };
+    let Some((content_type, content_value)) = select_content_entry(content) else {
         return String::new();
     };
 
+    let example = extract_example(content_value, root)
+        .or_else(|| extract_schema_example(content_value.get("schema"), root))
+        .or_else(|| generate_example_from_schema(content_value.get("schema"), root, 0));
+
+    let Some(example) = example else {
+        return String::new();
+    };
+
+    format_body_example(&example, content_type)
+}
+
+fn select_content_entry(content: &serde_json::Map<String, Value>) -> Option<(&str, &Value)> {
+    if let Some(value) = content.get("application/json") {
+        return Some(("application/json", value));
+    }
+    content.iter().next().map(|(key, value)| (key.as_str(), value))
+}
+
+fn extract_example(content_value: &Value, root: &Value) -> Option<Value> {
+    if let Some(example) = content_value.get("example") {
+        let resolved = resolve_ref(example, root, 0).unwrap_or(example);
+        return Some(resolved.clone());
+    }
+    let examples = content_value.get("examples")?.as_object()?;
+    let first = examples.values().next()?;
+    let resolved = resolve_ref(first, root, 0).unwrap_or(first);
+    if let Some(value) = resolved.get("value") {
+        let resolved_value = resolve_ref(value, root, 0).unwrap_or(value);
+        return Some(resolved_value.clone());
+    }
+    Some(resolved.clone())
+}
+
+fn extract_schema_example(schema: Option<&Value>, root: &Value) -> Option<Value> {
+    let schema = schema?;
+    let schema = resolve_ref(schema, root, 0).unwrap_or(schema);
+    if let Some(example) = schema.get("example") {
+        let resolved = resolve_ref(example, root, 0).unwrap_or(example);
+        return Some(resolved.clone());
+    }
+    if let Some(default) = schema.get("default") {
+        let resolved = resolve_ref(default, root, 0).unwrap_or(default);
+        return Some(resolved.clone());
+    }
+    None
+}
+
+fn generate_example_from_schema(schema: Option<&Value>, root: &Value, depth: usize) -> Option<Value> {
+    if depth > 6 {
+        return None;
+    }
+    let schema = schema?;
+    let schema = resolve_ref(schema, root, depth + 1).unwrap_or(schema);
+    if let Some(enum_values) = schema.get("enum").and_then(|value| value.as_array()) {
+        return enum_values.first().cloned();
+    }
+    if let Some(all_of) = schema.get("allOf").and_then(|value| value.as_array()) {
+        return generate_example_from_schema(all_of.first(), root, depth + 1);
+    }
+    if let Some(one_of) = schema.get("oneOf").and_then(|value| value.as_array()) {
+        return generate_example_from_schema(one_of.first(), root, depth + 1);
+    }
+    if let Some(any_of) = schema.get("anyOf").and_then(|value| value.as_array()) {
+        return generate_example_from_schema(any_of.first(), root, depth + 1);
+    }
+
+    let schema_type = schema
+        .get("type")
+        .and_then(|value| value.as_str())
+        .or_else(|| {
+            if schema.get("properties").is_some() {
+                Some("object")
+            } else {
+                None
+            }
+        })
+        .unwrap_or("object");
+
+    match schema_type {
+        "object" => {
+            let mut map = Map::new();
+            if let Some(props) = schema.get("properties").and_then(|value| value.as_object()) {
+                for (key, value) in props {
+                    if let Some(example) = generate_example_from_schema(Some(value), root, depth + 1) {
+                        map.insert(key.clone(), example);
+                    } else {
+                        map.insert(key.clone(), Value::Null);
+                    }
+                }
+            }
+            Some(Value::Object(map))
+        }
+        "array" => {
+            let item = generate_example_from_schema(schema.get("items"), root, depth + 1)
+                .unwrap_or(Value::Null);
+            Some(Value::Array(vec![item]))
+        }
+        "string" => Some(Value::String(String::new())),
+        "integer" => Some(Value::Number(0.into())),
+        "number" => serde_json::Number::from_f64(0.0).map(Value::Number),
+        "boolean" => Some(Value::Bool(false)),
+        _ => Some(Value::Null),
+    }
+}
+
+fn format_body_example(example: &Value, content_type: &str) -> String {
+    if content_type.contains("json") {
+        return serde_json::to_string_pretty(example).unwrap_or_default();
+    }
+    if let Some(text) = example.as_str() {
+        return text.to_string();
+    }
     serde_json::to_string_pretty(example).unwrap_or_default()
+}
+
+fn resolve_ref<'a>(value: &'a Value, root: &'a Value, depth: usize) -> Option<&'a Value> {
+    if depth > 8 {
+        return None;
+    }
+    let ref_path = value.get("$ref")?.as_str()?;
+    let pointer = if let Some(stripped) = ref_path.strip_prefix('#') {
+        if stripped.is_empty() {
+            ""
+        } else {
+            stripped
+        }
+    } else {
+        return None;
+    };
+    let resolved = root.pointer(pointer)?;
+    if resolved.get("$ref").is_some() {
+        return resolve_ref(resolved, root, depth + 1).or(Some(resolved));
+    }
+    Some(resolved)
 }
 
 fn extract_path_params(path: &str) -> Vec<Param> {

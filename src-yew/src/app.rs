@@ -1,4 +1,5 @@
 use gloo::events::EventListener;
+use url::Url;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
@@ -20,7 +21,9 @@ pub fn app() -> Html {
     let dragging = use_state(|| false);
     let drag_state = use_mut_ref(|| DragState::default());
     let save_dialog_open = use_state(|| false);
-    let save_name = use_state(String::new);
+    let save_tag = use_state(String::new);
+    let server_dialog = use_state(|| None::<ServerDialogMode>);
+    let server_input = use_state(String::new);
     let pending_tab = use_state(|| None::<Tab>);
     let pending_tab_index = use_state(|| None::<usize>);
 
@@ -31,11 +34,11 @@ pub fn app() -> Html {
 
     let open_save_dialog = {
         let save_dialog_open = save_dialog_open.clone();
-        let save_name = save_name.clone();
+        let save_tag = save_tag.clone();
         let pending_tab = pending_tab.clone();
         let pending_tab_index = pending_tab_index.clone();
-        Callback::from(move |(index, tab): (usize, Tab)| {
-            save_name.set(tab.label.clone());
+        Callback::from(move |(index, tab, tag): (usize, Tab, String)| {
+            save_tag.set(tag);
             pending_tab.set(Some(tab));
             pending_tab_index.set(Some(index));
             save_dialog_open.set(true);
@@ -44,13 +47,16 @@ pub fn app() -> Html {
 
     let on_save = {
         let tab_state = tab_state.clone();
+        let tree_state = tree_state.clone();
         let open_save_dialog = open_save_dialog.clone();
         Callback::from(move |_| {
             let index = tab_state.active_tab_id;
             let Some(tab) = tab_state.tabs.get(index).cloned() else {
                 return;
             };
-            open_save_dialog.emit((index, tab));
+            let tag = infer_tag_from_selection(&tree_state.root, tree_state.selected_path.as_ref())
+                .unwrap_or_default();
+            open_save_dialog.emit((index, tab, tag));
         })
     };
 
@@ -149,12 +155,30 @@ pub fn app() -> Html {
 
     let pending_delete = tree_state.pending_delete.clone();
 
+    let on_open_add_server = {
+        let server_dialog = server_dialog.clone();
+        let server_input = server_input.clone();
+        Callback::from(move |_| {
+            server_input.set("http://localhost".to_string());
+            server_dialog.set(Some(ServerDialogMode::AddServer));
+        })
+    };
+
+    let on_open_add_tag = {
+        let server_dialog = server_dialog.clone();
+        let server_input = server_input.clone();
+        Callback::from(move |_| {
+            server_input.set("New tag".to_string());
+            server_dialog.set(Some(ServerDialogMode::AddTag));
+        })
+    };
+
     html! {
         <ContextProvider<UseReducerHandle<TreeState>> context={tree_state.clone()}>
             <ContextProvider<UseReducerHandle<TabState>> context={tab_state.clone()}>
                 <div class="app" ref={app_ref}>
                     <aside class="sidebar" style={format!("width: {}px;", *sidebar_width)}>
-                        <Side />
+                        <Side on_add_server={on_open_add_server} on_add_tag={on_open_add_tag} />
                     </aside>
                     <div class="sidebar-resize" onmousedown={on_resize_start}></div>
                     <main class="main">
@@ -162,11 +186,129 @@ pub fn app() -> Html {
                     </main>
                 </div>
                 {
-                    if *save_dialog_open {
-                        let on_save_name_change = {
-                            let save_name = save_name.clone();
+                    if let Some(mode) = (*server_dialog).clone() {
+                        let on_input_change = {
+                            let server_input = server_input.clone();
                             Callback::from(move |event: InputEvent| {
-                                save_name.set(event_target_value(&event));
+                                server_input.set(event_target_value(&event));
+                            })
+                        };
+
+                        let on_confirm = {
+                            let tree_state = tree_state.clone();
+                            let server_dialog = server_dialog.clone();
+                            let server_input = server_input.clone();
+                            Callback::from(move |_| {
+                                let value = (*server_input).trim().to_string();
+                                match mode {
+                                    ServerDialogMode::AddServer => {
+                                        let Some(url) = normalize_server_url(&value) else {
+                                            show_alert("Invalid server URL. Use http:// or https://.");
+                                            return;
+                                        };
+                                        let new_index = tree_state.root.children.len();
+                                        tree_state.dispatch(TreeAction::AddServer { label: url });
+                                        tree_state.dispatch(TreeAction::SetSelectedServer { index: new_index });
+                                    }
+                                    ServerDialogMode::AddTag => {
+                                        let Some(server_index) = tree_state.selected_server else {
+                                            show_alert("Select a server.");
+                                            return;
+                                        };
+                                        let label = if value.is_empty() {
+                                            "New tag".to_string()
+                                        } else {
+                                            value.clone()
+                                        };
+                                        if let Some(server) = tree_state.root.children.get(server_index) {
+                                            if server.children.iter().any(|child| child.label == label) {
+                                                show_alert("Tag already exists.");
+                                                return;
+                                            }
+                                        }
+                                        tree_state.dispatch(TreeAction::AddChild {
+                                            path: vec![server_index],
+                                            node: TreeNode {
+                                                label,
+                                                content: None,
+                                                expanded: true,
+                                                children: Vec::new(),
+                                            },
+                                        });
+                                    }
+                                }
+                                server_dialog.set(None);
+                            })
+                        };
+
+                        let on_cancel = {
+                            let server_dialog = server_dialog.clone();
+                            Callback::from(move |_| {
+                                server_dialog.set(None);
+                            })
+                        };
+
+                        let on_confirm_click = {
+                            let on_confirm = on_confirm.clone();
+                            Callback::from(move |_event: MouseEvent| on_confirm.emit(()))
+                        };
+
+                        let on_cancel_click = {
+                            let on_cancel = on_cancel.clone();
+                            Callback::from(move |_event: MouseEvent| on_cancel.emit(()))
+                        };
+
+                        let on_keydown = {
+                            let on_confirm = on_confirm.clone();
+                            let on_cancel = on_cancel.clone();
+                            Callback::from(move |event: KeyboardEvent| match event.key().as_str() {
+                                "Enter" => {
+                                    event.prevent_default();
+                                    on_confirm.emit(());
+                                }
+                                "Escape" => {
+                                    event.prevent_default();
+                                    on_cancel.emit(());
+                                }
+                                _ => {}
+                            })
+                        };
+
+                        let (title, label, placeholder) = match mode {
+                            ServerDialogMode::AddServer => ("Add server", "Server URL", "http://localhost"),
+                            ServerDialogMode::AddTag => ("Add tag", "Tag name", "New tag"),
+                        };
+
+                        html! {
+                            <div class="modal-backdrop">
+                                <div class="modal">
+                                    <h2 class="modal-title">{ title }</h2>
+                                    <label class="modal-label">{ label }</label>
+                                    <input
+                                        class="modal-input"
+                                        value={(*server_input).clone()}
+                                        placeholder={placeholder}
+                                        oninput={on_input_change}
+                                        onkeydown={on_keydown}
+                                        autofocus=true
+                                    />
+                                    <div class="modal-actions">
+                                        <button class="button secondary" onclick={on_cancel_click}>{ "Cancel" }</button>
+                                        <button class="button" onclick={on_confirm_click}>{ "Save" }</button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    } else {
+                        html! {}
+                    }
+                }
+                {
+                    if *save_dialog_open {
+                        let on_save_tag_change = {
+                            let save_tag = save_tag.clone();
+                            Callback::from(move |event: InputEvent| {
+                                save_tag.set(event_target_value(&event));
                             })
                         };
 
@@ -175,7 +317,7 @@ pub fn app() -> Html {
                             let tab_state = tab_state.clone();
                             let pending_tab = pending_tab.clone();
                             let pending_tab_index = pending_tab_index.clone();
-                            let save_name = save_name.clone();
+                            let save_tag = save_tag.clone();
                             let save_dialog_open = save_dialog_open.clone();
                             Callback::from(move |_| {
                                 let Some(tab) = (*pending_tab).clone() else {
@@ -183,30 +325,171 @@ pub fn app() -> Html {
                                     return;
                                 };
 
-                                let name = (*save_name).trim().to_string();
-                                let label = if name.is_empty() {
-                                    tab.label.clone()
-                                } else {
-                                    name
-                                };
+                                let tag_label = (*save_tag).trim().to_string();
+                                let use_tag = !tag_label.is_empty();
+
+                                let path_value = normalize_request_path(&tab.content.url);
+                                let path_label = strip_query(&path_value);
+                                if path_label.is_empty() {
+                                    show_alert("Path inválido. Use /caminho.");
+                                    return;
+                                }
+                                let label = path_label.clone();
 
                                 let root = tree_state.root.clone();
-                                let selected = tree_state.selected_path.clone();
-                                let target_path = resolve_save_path(&root, selected.as_ref());
+                                let Some(server_index) = tree_state.selected_server else {
+                                    show_alert("Selecione um server.");
+                                    return;
+                                };
+                                let Some(server_node) = root.children.get(server_index) else {
+                                    show_alert("Server inválido.");
+                                    return;
+                                };
 
-                                tree_state.dispatch(TreeAction::AddChild {
-                                    path: target_path,
-                                    node: TreeNode {
-                                        label: label.clone(),
-                                        content: Some(tab.content.clone()),
-                                        expanded: false,
-                                        children: Vec::new(),
-                                    },
-                                });
+                                let server_path = vec![server_index];
+                                let existing_path =
+                                    find_request_path_by_label_in_server(&root, server_index, &label);
+                                let selected_path = tree_state.selected_path.clone();
+                                let is_selected_same = selected_path
+                                    .as_ref()
+                                    .and_then(|path| node_at_path(&root, path))
+                                    .map(|node| node.content.is_some() && node.label == label)
+                                    .unwrap_or(false);
 
+                                if let Some(path) = existing_path.as_ref() {
+                                    if !is_selected_same || selected_path.as_ref() != Some(path) {
+                                        show_alert("Já existe uma request com esse path.");
+                                        return;
+                                    }
+                                }
+
+                                let new_node = TreeNode {
+                                    label: label.clone(),
+                                    content: Some(tab.content.clone()),
+                                    expanded: false,
+                                    children: Vec::new(),
+                                };
+
+                                if let Some(path) = existing_path {
+                                    if is_selected_same && selected_path.as_ref() == Some(&path) {
+                                        tree_state.dispatch(TreeAction::ReplaceNode {
+                                            path,
+                                            node: new_node,
+                                        });
+
+                                        if tab.content.url != label {
+                                            tab_state.dispatch(TabAction::UpdateUrl {
+                                                index: tab_state.active_tab_id,
+                                                url: label.clone(),
+                                            });
+                                        }
+                                        tab_state.dispatch(TabAction::RenameTab {
+                                            index: tab_state.active_tab_id,
+                                            label,
+                                        });
+                                        tab_state.dispatch(TabAction::SetDirty {
+                                            index: tab_state.active_tab_id,
+                                            dirty: false,
+                                        });
+
+                                        pending_tab.set(None);
+                                        pending_tab_index.set(None);
+                                        save_dialog_open.set(false);
+                                        return;
+                                    }
+                                }
+
+                                if use_tag {
+                                    let (tag_index, tag_exists) =
+                                        find_child_index_by_label(server_node, &tag_label);
+
+                                    if !tag_exists {
+                                        tree_state.dispatch(TreeAction::AddChild {
+                                            path: server_path.clone(),
+                                            node: TreeNode {
+                                                label: tag_label.clone(),
+                                                content: None,
+                                                expanded: true,
+                                                children: Vec::new(),
+                                            },
+                                        });
+                                    }
+
+                                    let tag_path = vec![server_index, tag_index];
+
+                                    if tag_exists {
+                                        if let Some((existing_path, existing_node)) =
+                                            find_child_with_label(&root, &tag_path, &label)
+                                        {
+                                            if existing_node.content.is_none() {
+                                                show_alert("Já existe uma tag com esse nome.");
+                                                return;
+                                            }
+
+                                            if !show_confirm(&format!(
+                                                "Já existe uma aba com esse nome na tag. Substituir?\n{}",
+                                                label
+                                            )) {
+                                                return;
+                                            }
+
+                                            tree_state.dispatch(TreeAction::ReplaceNode {
+                                                path: existing_path,
+                                                node: new_node,
+                                            });
+                                        } else {
+                                            tree_state.dispatch(TreeAction::AddChild {
+                                                path: tag_path,
+                                                node: new_node,
+                                            });
+                                        }
+                                    } else {
+                                        tree_state.dispatch(TreeAction::AddChild {
+                                            path: tag_path,
+                                            node: new_node,
+                                        });
+                                    }
+                                } else {
+                                    if let Some((existing_path, existing_node)) =
+                                        find_child_with_label(&root, &server_path, &label)
+                                    {
+                                        if existing_node.content.is_none() {
+                                            show_alert("Já existe uma tag com esse nome.");
+                                            return;
+                                        }
+
+                                        if !show_confirm(&format!(
+                                            "Já existe uma aba com esse nome no servidor. Substituir?\n{}",
+                                            label
+                                        )) {
+                                            return;
+                                        }
+
+                                        tree_state.dispatch(TreeAction::ReplaceNode {
+                                            path: existing_path,
+                                            node: new_node,
+                                        });
+                                    } else {
+                                        tree_state.dispatch(TreeAction::AddChild {
+                                            path: server_path,
+                                            node: new_node,
+                                        });
+                                    }
+                                }
+
+                                if tab.content.url != label {
+                                    tab_state.dispatch(TabAction::UpdateUrl {
+                                        index: tab_state.active_tab_id,
+                                        url: label.clone(),
+                                    });
+                                }
                                 tab_state.dispatch(TabAction::RenameTab {
                                     index: tab_state.active_tab_id,
                                     label,
+                                });
+                                tab_state.dispatch(TabAction::SetDirty {
+                                    index: tab_state.active_tab_id,
+                                    dirty: false,
                                 });
 
                                 pending_tab.set(None);
@@ -256,12 +539,12 @@ pub fn app() -> Html {
                             <div class="modal-backdrop">
                                 <div class="modal">
                                     <h2 class="modal-title">{ "Salvar no Tree" }</h2>
-                                    <label class="modal-label" for="save-name">{ "Nome da aba" }</label>
+                                    <label class="modal-label" for="save-tag">{ "Tag" }</label>
                                     <input
-                                        id="save-name"
+                                        id="save-tag"
                                         class="modal-input"
-                                        value={(*save_name).clone()}
-                                        oninput={on_save_name_change}
+                                        value={(*save_tag).clone()}
+                                        oninput={on_save_tag_change}
                                         onkeydown={on_keydown}
                                         autofocus=true
                                     />
@@ -325,6 +608,12 @@ pub fn app() -> Html {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum ServerDialogMode {
+    AddServer,
+    AddTag,
+}
+
 #[derive(Default)]
 struct DragState {
     start_x: f64,
@@ -337,6 +626,29 @@ fn event_payload(event: &JsValue) -> Option<String> {
         .and_then(|value| value.as_string())
 }
 
+fn normalize_server_url(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let url = Url::parse(trimmed).ok()?;
+    match url.scheme() {
+        "http" | "https" => {}
+        _ => return None,
+    }
+
+    let mut normalized = url.to_string();
+    while normalized.ends_with('/') {
+        normalized.pop();
+    }
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
 async fn open_openapi(tree_state: UseReducerHandle<TreeState>) {
     let Ok(Some(path)) = tauri_api::dialog_open().await else {
         return;
@@ -347,7 +659,7 @@ async fn open_openapi(tree_state: UseReducerHandle<TreeState>) {
     let Ok(node) = build_tree_from_openapi(&text) else {
         return;
     };
-    tree_state.dispatch(TreeAction::AddRootChild(node));
+    tree_state.dispatch(TreeAction::SetServers { servers: node.children });
 }
 
 async fn export_openapi(tree_state: UseReducerHandle<TreeState>) {
@@ -391,28 +703,95 @@ async fn export_openapi(tree_state: UseReducerHandle<TreeState>) {
     }
 }
 
-fn resolve_save_path(root: &TreeNode, selected: Option<&Vec<usize>>) -> Vec<usize> {
-    if let Some(path) = selected {
-        if is_folder_path(root, path) {
-            return path.clone();
-        }
-
-        if let Some(parent) = path.split_last().map(|(_, parent)| parent.to_vec()) {
-            if is_folder_path(root, &parent) {
-                return parent;
-            }
-        }
-    }
-
-    Vec::new()
-}
-
 fn ensure_openapi_extension(path: &str) -> String {
     let lower = path.to_lowercase();
     if lower.ends_with(".yaml") || lower.ends_with(".yml") || lower.ends_with(".json") {
         return path.to_string();
     }
     format!("{path}.yaml")
+}
+
+fn infer_tag_from_selection(root: &TreeNode, selected: Option<&Vec<usize>>) -> Option<String> {
+    let path = selected?;
+    if path.len() >= 2 {
+        let node = node_at_path(root, path)?;
+        if node.content.is_none() {
+            return Some(node.label.clone());
+        }
+        if let Some(parent_path) = path.split_last().map(|(_, parent)| parent) {
+            if parent_path.len() >= 2 {
+                let parent = node_at_path(root, parent_path)?;
+                if parent.content.is_none() {
+                    return Some(parent.label.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn find_child_index_by_label(node: &TreeNode, label: &str) -> (usize, bool) {
+    for (index, child) in node.children.iter().enumerate() {
+        if child.label == label {
+            return (index, true);
+        }
+    }
+    (node.children.len(), false)
+}
+
+fn normalize_request_path(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    if trimmed.starts_with('/') || trimmed.starts_with('?') {
+        return trimmed.to_string();
+    }
+
+    format!("/{}", trimmed)
+}
+
+fn strip_query(value: &str) -> String {
+    value.split('?').next().unwrap_or("").to_string()
+}
+
+fn find_child_with_label<'a>(
+    root: &'a TreeNode,
+    path: &[usize],
+    label: &str,
+) -> Option<(Vec<usize>, &'a TreeNode)> {
+    let folder = node_at_path(root, path)?;
+    for (index, child) in folder.children.iter().enumerate() {
+        if child.label == label {
+            let mut child_path = path.to_vec();
+            child_path.push(index);
+            return Some((child_path, child));
+        }
+    }
+    None
+}
+
+fn find_request_path_by_label_in_server(
+    root: &TreeNode,
+    server_index: usize,
+    label: &str,
+) -> Option<Vec<usize>> {
+    let server = root.children.get(server_index)?;
+    for (child_index, child) in server.children.iter().enumerate() {
+        if child.content.is_some() {
+            if child.label == label {
+                return Some(vec![server_index, child_index]);
+            }
+            continue;
+        }
+        for (grand_index, grand) in child.children.iter().enumerate() {
+            if grand.content.is_some() && grand.label == label {
+                return Some(vec![server_index, child_index, grand_index]);
+            }
+        }
+    }
+    None
 }
 
 fn event_target_value(event: &InputEvent) -> String {
@@ -438,12 +817,6 @@ fn show_confirm(message: &str) -> bool {
 fn is_exists_error(message: &str) -> bool {
     let lower = message.to_lowercase();
     lower.contains("exists") || lower.contains("exist") || lower.contains("eexist")
-}
-
-fn is_folder_path(root: &TreeNode, path: &[usize]) -> bool {
-    node_at_path(root, path)
-        .map(|node| node.content.is_none())
-        .unwrap_or(false)
 }
 
 fn node_at_path<'a>(root: &'a TreeNode, path: &[usize]) -> Option<&'a TreeNode> {

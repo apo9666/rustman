@@ -142,13 +142,6 @@ pub async fn fs_read_text(path: &str) -> Result<String, JsValue> {
     js_value_to_text(value)
 }
 
-pub async fn fs_exists(path: &str) -> Result<bool, JsValue> {
-    let payload = Object::new();
-    Reflect::set(&payload, &JsValue::from_str("path"), &JsValue::from_str(path))?;
-    let value = invoke("plugin:fs|exists", payload.into()).await?;
-    Ok(value.as_bool().unwrap_or(false))
-}
-
 pub async fn fs_write_text(path: &str, contents: &str) -> Result<(), JsValue> {
     fs_write_text_with_options(path, contents, None).await
 }

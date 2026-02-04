@@ -8,7 +8,11 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::SubmitEvent;
 use yew::prelude::*;
 
-use crate::state::{Header, MethodEnum, Response, TabAction, TabContent, TabState};
+use url::Url;
+
+use crate::state::{
+    Header, MethodEnum, Param, Response, TabAction, TabContent, TabState, TreeState,
+};
 use crate::tauri_api;
 use crate::utils::params_from_url;
 
@@ -21,11 +25,19 @@ pub struct RequestUrlProps {
 #[function_component(RequestUrl)]
 pub fn request_url(props: &RequestUrlProps) -> Html {
     let tab_state = use_context::<UseReducerHandle<TabState>>();
+    let tree_state = use_context::<UseReducerHandle<TreeState>>();
     let Some(tab_state) = tab_state else {
+        return html! {};
+    };
+    let Some(tree_state) = tree_state else {
         return html! {};
     };
     let index = props.tab_index;
     let content = props.content.clone();
+    let selected_server = tree_state
+        .selected_server
+        .and_then(|index| tree_state.root.children.get(index))
+        .map(|node| node.label.clone());
 
     let on_method_change = {
         let tab_state = tab_state.clone();
@@ -41,31 +53,39 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
         let tab_state = tab_state.clone();
         Callback::from(move |event: InputEvent| {
             let value = input_value(&event);
-            if let Some(params) = params_from_url(&value) {
+            let normalized = normalize_request_path(&value);
+            let base_path = strip_query(&normalized);
+            if let Some(params) = params_from_url(&normalized) {
                 tab_state.dispatch(TabAction::UpdateUrlAndParams {
                     index,
-                    url: value,
+                    url: base_path,
                     params,
                 });
             } else {
-                tab_state.dispatch(TabAction::UpdateUrl { index, url: value });
+                tab_state.dispatch(TabAction::UpdateUrl {
+                    index,
+                    url: base_path,
+                });
             }
         })
     };
 
     let on_submit = {
         let tab_state = tab_state.clone();
+        let selected_server = selected_server.clone();
         Callback::from(move |event: SubmitEvent| {
             event.prevent_default();
             let tab_state = tab_state.clone();
+            let selected_server = selected_server.clone();
             spawn_local(async move {
                 let Some(tab) = tab_state.tabs.get(index).cloned() else {
                     return;
                 };
-                let response = match perform_request(&tab.content).await {
-                    Ok(response) => response,
-                    Err(error) => Response {
-                        data: error,
+                let response =
+                    match perform_request(&tab.content, selected_server.as_deref()).await {
+                        Ok(response) => response,
+                        Err(error) => Response {
+                            data: error,
                         ok: false,
                         status: 0,
                         ..Response::default()
@@ -89,7 +109,7 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
                 </div>
                 <input
                     class="url-input"
-                    placeholder="Enter request URL"
+                    placeholder="/path"
                     value={content.url}
                     oninput={on_url_change}
                 />
@@ -99,11 +119,12 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
     }
 }
 
-async fn perform_request(content: &TabContent) -> Result<Response, String> {
+async fn perform_request(content: &TabContent, server: Option<&str>) -> Result<Response, String> {
+    let url = build_request_url(content, server)?;
     let headers = build_headers(&content.headers, content.method, &content.body);
     let request = TauriRequest {
         method: content.method.as_str().to_string(),
-        url: content.url.clone(),
+        url,
         headers,
         body: if should_send_body(content.method) {
             Some(content.body.clone())
@@ -228,4 +249,82 @@ fn build_request_payload(request: &TauriRequest) -> Result<JsValue, JsValue> {
     )?;
 
     Ok(payload.into())
+}
+
+fn build_request_url(content: &TabContent, server: Option<&str>) -> Result<String, String> {
+    let path = normalize_request_path(&content.url);
+    if path.is_empty() {
+        return Err("Path vazio.".to_string());
+    }
+
+    let path_with_query = apply_params(&path, &content.params);
+
+    if let Ok(url) = Url::parse(&path_with_query) {
+        if matches!(url.scheme(), "http" | "https") {
+            return Ok(path_with_query);
+        }
+    }
+
+    let Some(server) = server else {
+        return Err("Selecione um server.".to_string());
+    };
+    let base = server.trim_end_matches('/');
+    let path = if path.starts_with('/') {
+        path_with_query
+    } else {
+        format!("/{}", path_with_query)
+    };
+    Ok(format!("{base}{path}"))
+}
+
+fn normalize_request_path(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    if let Ok(url) = Url::parse(trimmed) {
+        if matches!(url.scheme(), "http" | "https") {
+            let mut path = url.path().to_string();
+            if let Some(query) = url.query() {
+                path.push('?');
+                path.push_str(query);
+            }
+            return normalize_slash_path(&path);
+        }
+    }
+
+    normalize_slash_path(trimmed)
+}
+
+fn normalize_slash_path(value: &str) -> String {
+    if value.starts_with('/') || value.starts_with('?') {
+        value.to_string()
+    } else {
+        format!("/{}", value)
+    }
+}
+
+fn strip_query(value: &str) -> String {
+    value.split('?').next().unwrap_or("").to_string()
+}
+
+fn apply_params(base: &str, params: &[Param]) -> String {
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+    for param in params {
+        if !param.enable {
+            continue;
+        }
+        if param.key.trim().is_empty() {
+            continue;
+        }
+        serializer.append_pair(&param.key, &param.value);
+    }
+    let query = serializer.finish();
+    let base = strip_query(base);
+    if query.is_empty() {
+        base
+    } else {
+        format!("{}?{}", base, query)
+    }
 }

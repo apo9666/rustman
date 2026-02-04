@@ -3,7 +3,7 @@ use url::Url;
 use crate::state::Param;
 
 pub fn params_from_url(url: &str) -> Option<Vec<Param>> {
-    let parsed = Url::parse(url).ok()?;
+    let parsed = parse_url_with_fallback(url)?;
     let mut params = Vec::new();
     for (key, value) in parsed.query_pairs() {
         params.push(Param {
@@ -22,22 +22,31 @@ pub fn params_from_url(url: &str) -> Option<Vec<Param>> {
     Some(params)
 }
 
-pub fn url_from_params(url: &str, params: &[Param]) -> String {
-    let base = url.split('?').next().unwrap_or(url);
-    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
-    for param in params {
-        if !param.enable {
-            continue;
-        }
-        if param.key.trim().is_empty() {
-            continue;
-        }
-        serializer.append_pair(&param.key, &param.value);
+fn parse_url_with_fallback(value: &str) -> Option<Url> {
+    if let Ok(url) = Url::parse(value) {
+        return Some(url);
     }
-    let query = serializer.finish();
-    if query.is_empty() {
-        base.to_string()
+
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let base = "http://localhost";
+    if trimmed.starts_with('/') {
+        Url::parse(&format!("{base}{trimmed}")).ok()
+    } else if trimmed.starts_with('?') {
+        Url::parse(&format!("{base}/{}", trimmed)).ok()
     } else {
-        format!("{}?{}", base, query)
+        Url::parse(&format!("{base}/{trimmed}")).ok()
+    }
+}
+
+pub fn url_from_params(url: &str, _params: &[Param]) -> String {
+    let base = url.split('?').next().unwrap_or(url);
+    if base.is_empty() {
+        "/".to_string()
+    } else {
+        base.to_string()
     }
 }

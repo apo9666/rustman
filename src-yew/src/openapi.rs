@@ -35,24 +35,62 @@ pub fn build_tree_from_openapi(text: &str) -> Result<TreeNode, String> {
             continue;
         };
 
-        let mut path_nodes = Vec::new();
+        let mut tag_map: std::collections::BTreeMap<String, Vec<TreeNode>> =
+            std::collections::BTreeMap::new();
+        let mut root_nodes: Vec<TreeNode> = Vec::new();
         let mut path_entries: Vec<_> = paths.iter().collect();
         path_entries.sort_by(|(a, _), (b, _)| a.cmp(b));
         for (path_key, path_value) in path_entries {
-            let content = convert_content(url, path_key, path_value);
-            path_nodes.push(TreeNode {
-                label: path_key.clone(),
-                content: Some(content),
-                expanded: false,
-                children: Vec::new(),
-            });
+            let Some(path_obj) = path_value.as_object() else {
+                continue;
+            };
+            for method in MethodEnum::all() {
+                let method_key = method.key();
+                let Some(method_value) = path_obj.get(method_key) else {
+                    continue;
+                };
+                let content = convert_content(path_key, *method, method_value);
+                let node = TreeNode {
+                    label: path_key.clone(),
+                    content: Some(content),
+                    expanded: false,
+                    children: Vec::new(),
+                };
+                let tag_label = method_value
+                    .get("tags")
+                    .and_then(|value| value.as_array())
+                    .and_then(|tags| tags.first())
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.trim())
+                    .filter(|value| !value.is_empty());
+
+                if let Some(tag_label) = tag_label {
+                    tag_map.entry(tag_label.to_string()).or_default().push(node);
+                } else {
+                    root_nodes.push(node);
+                }
+            }
         }
+
+        let mut tag_nodes: Vec<TreeNode> = tag_map
+            .into_iter()
+            .map(|(label, children)| TreeNode {
+                label,
+                content: None,
+                expanded: true,
+                children,
+            })
+            .collect();
+
+        let mut children = Vec::new();
+        children.append(&mut root_nodes);
+        children.append(&mut tag_nodes);
 
         server_nodes.push(TreeNode {
             label: url.to_string(),
             content: None,
-            expanded: false,
-            children: path_nodes,
+            expanded: true,
+            children,
         });
     }
 
@@ -65,55 +103,22 @@ pub fn build_tree_from_openapi(text: &str) -> Result<TreeNode, String> {
 }
 
 pub fn build_openapi_from_tree(root: &TreeNode) -> Result<String, String> {
-    let mut entries = Vec::new();
-    collect_endpoints(root, &mut entries);
-    build_openapi_from_entries(root, entries)
+    build_openapi_from_tree_nodes(root)
 }
 
-fn convert_content(server: &str, key: &str, path: &Value) -> TabContent {
-    let (method, body) = find_method_and_body(path);
-    let server = server.trim_end_matches('/');
-    let path = if key.starts_with('/') {
-        key.to_string()
-    } else {
-        format!("/{}", key)
-    };
-
+fn convert_content(path_key: &str, method: MethodEnum, method_value: &Value) -> TabContent {
+    let path = normalize_path(path_key);
+    let body = extract_body(method_value);
     TabContent {
-        url: format!("{}{}", server, path),
+        url: path,
         method,
         body,
         ..TabContent::default()
     }
 }
 
-fn find_method_and_body(path: &Value) -> (MethodEnum, String) {
-    let methods = [
-        MethodEnum::Get,
-        MethodEnum::Post,
-        MethodEnum::Put,
-        MethodEnum::Patch,
-        MethodEnum::Delete,
-        MethodEnum::Options,
-        MethodEnum::Head,
-        MethodEnum::Trace,
-    ];
-
-    for method in methods {
-        if path.get(method.key()).is_some() {
-            let body = extract_body(path, method.key());
-            return (method, body);
-        }
-    }
-
-    (MethodEnum::Get, String::new())
-}
-
-fn extract_body(path: &Value, method_key: &str) -> String {
-    let Some(method) = path.get(method_key) else {
-        return String::new();
-    };
-    let Some(example) = method
+fn extract_body(method_value: &Value) -> String {
+    let Some(example) = method_value
         .get("requestBody")
         .and_then(|value| value.get("content"))
         .and_then(|value| value.get("application/json"))
@@ -125,52 +130,37 @@ fn extract_body(path: &Value, method_key: &str) -> String {
     serde_json::to_string_pretty(example).unwrap_or_default()
 }
 
-fn build_openapi_from_entries(
-    root: &TreeNode,
-    entries: Vec<(String, TabContent)>,
-) -> Result<String, String> {
-    if entries.is_empty() {
+fn build_openapi_from_tree_nodes(root: &TreeNode) -> Result<String, String> {
+    if root.children.is_empty() {
         return Err("Nenhuma request para exportar.".to_string());
     }
 
     let mut servers = BTreeSet::new();
     let mut paths: Map<String, Value> = Map::new();
     let mut seen = HashSet::new();
-    let mut invalid_urls = 0;
 
-    for (label, content) in entries {
-        let Some(url) = parse_request_url(&content.url) else {
-            invalid_urls += 1;
-            continue;
-        };
-
-        let key = (content.method.key().to_string(), content.url.clone());
-        if !seen.insert(key) {
-            continue;
-        }
-
-        let origin = url.origin().unicode_serialization();
-        if !origin.is_empty() && origin != "null" {
-            servers.insert(origin);
-        }
-
-        let path = url.path();
-        let path_key = if path.is_empty() {
-            "/".to_string()
-        } else {
-            path.to_string()
-        };
+    let mut push_operation = |node: &TreeNode, content: &TabContent, tag_label: Option<&str>| {
+        let path_key = normalize_path(&strip_query(&content.url));
         let method_key = content.method.key().to_string();
+        let dedupe_key = (method_key.clone(), path_key.clone());
+        if !seen.insert(dedupe_key) {
+            return;
+        }
 
         let mut operation = Map::new();
-        operation.insert("summary".to_string(), Value::String(label));
+        operation.insert("summary".to_string(), Value::String(node.label.clone()));
+        if let Some(tag_label) = tag_label {
+            if !tag_label.trim().is_empty() {
+                operation.insert("tags".to_string(), json!([tag_label]));
+            }
+        }
 
-        let parameters = build_parameters(&content, &url);
+        let parameters = build_parameters(content);
         if !parameters.is_empty() {
             operation.insert("parameters".to_string(), Value::Array(parameters));
         }
 
-        if let Some(request_body) = build_request_body(&content) {
+        if let Some(request_body) = build_request_body(content) {
             operation.insert("requestBody".to_string(), request_body);
         }
 
@@ -182,15 +172,29 @@ fn build_openapi_from_entries(
         if let Value::Object(map) = path_item {
             map.insert(method_key, Value::Object(operation));
         }
+    };
+
+    for server in &root.children {
+        if !server.label.trim().is_empty() {
+            servers.insert(server.label.clone());
+        }
+        for node in &server.children {
+            if let Some(content) = node.content.as_ref() {
+                push_operation(node, content, None);
+                continue;
+            }
+
+            let tag_label = node.label.clone();
+            for child in &node.children {
+                let Some(content) = child.content.as_ref() else {
+                    continue;
+                };
+                push_operation(child, content, Some(&tag_label));
+            }
+        }
     }
 
     if paths.is_empty() {
-        if invalid_urls > 0 {
-            return Err(
-                "Nenhuma request válida para exportar. Verifique se a URL começa com http:// ou https://."
-                    .to_string(),
-            );
-        }
         return Err("Nenhuma request válida para exportar.".to_string());
     }
 
@@ -218,35 +222,7 @@ fn build_openapi_from_entries(
     serde_yaml::to_string(&doc).map_err(|err| err.to_string())
 }
 
-fn parse_request_url(value: &str) -> Option<Url> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    if let Ok(url) = Url::parse(trimmed) {
-        return Some(url);
-    }
-
-    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
-        return None;
-    }
-
-    let candidate = format!("https://{trimmed}");
-    Url::parse(&candidate).ok()
-}
-
-fn collect_endpoints(node: &TreeNode, out: &mut Vec<(String, TabContent)>) {
-    if let Some(content) = node.content.clone() {
-        out.push((node.label.clone(), content));
-    }
-
-    for child in &node.children {
-        collect_endpoints(child, out);
-    }
-}
-
-fn build_parameters(content: &TabContent, url: &Url) -> Vec<Value> {
+fn build_parameters(content: &TabContent) -> Vec<Value> {
     let mut parameters = Vec::new();
     let mut seen = HashSet::new();
 
@@ -270,13 +246,13 @@ fn build_parameters(content: &TabContent, url: &Url) -> Vec<Value> {
             );
         }
     } else {
-        for (key, value) in url.query_pairs() {
+        for (key, value) in parse_query_pairs(&content.url) {
             push_parameter(
                 &mut parameters,
                 &mut seen,
                 "query",
                 &key,
-                Some(value.as_ref()),
+                Some(&value),
             );
         }
     }
@@ -364,4 +340,43 @@ fn build_request_body(content: &TabContent) -> Option<Value> {
 
 fn matches_ignore_case(value: &str, other: &str) -> bool {
     value.eq_ignore_ascii_case(other)
+}
+
+fn parse_query_pairs(value: &str) -> Vec<(String, String)> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let parsed = if let Ok(url) = Url::parse(trimmed) {
+        url
+    } else {
+        let base = "http://localhost";
+        let candidate = if trimmed.starts_with('/') {
+            format!("{base}{trimmed}")
+        } else {
+            format!("{base}/{trimmed}")
+        };
+        Url::parse(&candidate).unwrap_or_else(|_| Url::parse(base).expect("valid base"))
+    };
+
+    parsed
+        .query_pairs()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect()
+}
+
+fn strip_query(value: &str) -> String {
+    value.split('?').next().unwrap_or("").to_string()
+}
+
+fn normalize_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        "/".to_string()
+    } else if trimmed.starts_with('/') {
+        trimmed.to_string()
+    } else {
+        format!("/{}", trimmed)
+    }
 }

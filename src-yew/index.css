@@ -52,6 +52,7 @@ body,
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid #3f3f46;
   font-size: 12px;
@@ -70,6 +71,39 @@ body,
 
 .tree-add-root:hover {
   background: #3f3f46;
+}
+
+.server-select-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.server-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 100%;
+  padding-right: 26px;
+}
+
+.server-select-wrap .select-chevron {
+  position: absolute;
+  right: 10px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 6px solid #a1a1aa;
+  pointer-events: none;
+}
+
+.tree-empty {
+  padding: 12px;
+  color: #a1a1aa;
+  font-size: 12px;
 }
 
 .tree-banner {

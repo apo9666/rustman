@@ -206,28 +206,27 @@ pub fn app() -> Html {
                                             show_alert("Invalid server URL. Use http:// or https://.");
                                             return;
                                         };
-                                        let new_index = tree_state.root.children.len();
+                                        let new_index = tree_state.servers.len();
                                         tree_state.dispatch(TreeAction::AddServer { label: url });
                                         tree_state.dispatch(TreeAction::SetSelectedServer { index: new_index });
                                     }
                                     ServerDialogMode::AddTag => {
-                                        let Some(server_index) = tree_state.selected_server else {
-                                            show_alert("Select a server.");
-                                            return;
-                                        };
                                         let label = if value.is_empty() {
                                             "New tag".to_string()
                                         } else {
                                             value.clone()
                                         };
-                                        if let Some(server) = tree_state.root.children.get(server_index) {
-                                            if server.children.iter().any(|child| child.label == label) {
-                                                show_alert("Tag already exists.");
-                                                return;
-                                            }
+                                        if tree_state
+                                            .root
+                                            .children
+                                            .iter()
+                                            .any(|child| child.content.is_none() && child.label == label)
+                                        {
+                                            show_alert("Tag already exists.");
+                                            return;
                                         }
                                         tree_state.dispatch(TreeAction::AddChild {
-                                            path: vec![server_index],
+                                            path: vec![],
                                             node: TreeNode {
                                                 label,
                                                 content: None,
@@ -337,18 +336,7 @@ pub fn app() -> Html {
                                 let label = path_label.clone();
 
                                 let root = tree_state.root.clone();
-                                let Some(server_index) = tree_state.selected_server else {
-                                    show_alert("Selecione um server.");
-                                    return;
-                                };
-                                let Some(server_node) = root.children.get(server_index) else {
-                                    show_alert("Server inválido.");
-                                    return;
-                                };
-
-                                let server_path = vec![server_index];
-                                let existing_path =
-                                    find_request_path_by_label_in_server(&root, server_index, &label);
+                                let existing_path = find_request_path_by_label(&root, &label);
                                 let selected_path = tree_state.selected_path.clone();
                                 let is_selected_same = selected_path
                                     .as_ref()
@@ -401,11 +389,11 @@ pub fn app() -> Html {
 
                                 if use_tag {
                                     let (tag_index, tag_exists) =
-                                        find_child_index_by_label(server_node, &tag_label);
+                                        find_tag_index_by_label(&root, &tag_label);
 
                                     if !tag_exists {
                                         tree_state.dispatch(TreeAction::AddChild {
-                                            path: server_path.clone(),
+                                            path: vec![],
                                             node: TreeNode {
                                                 label: tag_label.clone(),
                                                 content: None,
@@ -415,66 +403,16 @@ pub fn app() -> Html {
                                         });
                                     }
 
-                                    let tag_path = vec![server_index, tag_index];
-
-                                    if tag_exists {
-                                        if let Some((existing_path, existing_node)) =
-                                            find_child_with_label(&root, &tag_path, &label)
-                                        {
-                                            if existing_node.content.is_none() {
-                                                show_alert("Já existe uma tag com esse nome.");
-                                                return;
-                                            }
-
-                                            if !show_confirm(&format!(
-                                                "Já existe uma aba com esse nome na tag. Substituir?\n{}",
-                                                label
-                                            )) {
-                                                return;
-                                            }
-
-                                            tree_state.dispatch(TreeAction::ReplaceNode {
-                                                path: existing_path,
-                                                node: new_node,
-                                            });
-                                        } else {
-                                            tree_state.dispatch(TreeAction::AddChild {
-                                                path: tag_path,
-                                                node: new_node,
-                                            });
-                                        }
-                                    } else {
-                                        tree_state.dispatch(TreeAction::AddChild {
-                                            path: tag_path,
-                                            node: new_node,
-                                        });
-                                    }
+                                    let tag_path = vec![tag_index];
+                                    tree_state.dispatch(TreeAction::AddChild {
+                                        path: tag_path,
+                                        node: new_node,
+                                    });
                                 } else {
-                                    if let Some((existing_path, existing_node)) =
-                                        find_child_with_label(&root, &server_path, &label)
-                                    {
-                                        if existing_node.content.is_none() {
-                                            show_alert("Já existe uma tag com esse nome.");
-                                            return;
-                                        }
-
-                                        if !show_confirm(&format!(
-                                            "Já existe uma aba com esse nome no servidor. Substituir?\n{}",
-                                            label
-                                        )) {
-                                            return;
-                                        }
-
-                                        tree_state.dispatch(TreeAction::ReplaceNode {
-                                            path: existing_path,
-                                            node: new_node,
-                                        });
-                                    } else {
-                                        tree_state.dispatch(TreeAction::AddChild {
-                                            path: server_path,
-                                            node: new_node,
-                                        });
-                                    }
+                                    tree_state.dispatch(TreeAction::AddChild {
+                                        path: vec![],
+                                        node: new_node,
+                                    });
                                 }
 
                                 if tab.content.url != label {
@@ -650,16 +588,32 @@ fn normalize_server_url(value: &str) -> Option<String> {
 }
 
 async fn open_openapi(tree_state: UseReducerHandle<TreeState>) {
-    let Ok(Some(path)) = tauri_api::dialog_open().await else {
-        return;
+    let path = match tauri_api::dialog_open().await {
+        Ok(Some(path)) => path,
+        Ok(None) => return,
+        Err(err) => {
+            show_alert(&format!("Falha ao abrir diálogo: {:?}", err));
+            return;
+        }
     };
-    let Ok(text) = tauri_api::fs_read_text(&path).await else {
-        return;
+    let text = match tauri_api::fs_read_text(&path).await {
+        Ok(text) => text,
+        Err(err) => {
+            show_alert(&format!(
+                "Falha ao ler o arquivo: {}",
+                tauri_api::js_error_to_string(&err)
+            ));
+            return;
+        }
     };
-    let Ok(node) = build_tree_from_openapi(&text) else {
-        return;
+    let (root, servers) = match build_tree_from_openapi(&text) {
+        Ok(result) => result,
+        Err(err) => {
+            show_alert(&format!("Falha ao importar OpenAPI: {err}"));
+            return;
+        }
     };
-    tree_state.dispatch(TreeAction::SetServers { servers: node.children });
+    tree_state.dispatch(TreeAction::SetTree { root, servers });
 }
 
 async fn export_openapi(tree_state: UseReducerHandle<TreeState>) {
@@ -672,7 +626,7 @@ async fn export_openapi(tree_state: UseReducerHandle<TreeState>) {
         }
     };
 
-    let text = match build_openapi_from_tree(&tree_state.root) {
+    let text = match build_openapi_from_tree(&tree_state.root, &tree_state.servers) {
         Ok(text) => text,
         Err(err) => {
             show_alert(&err);
@@ -713,30 +667,29 @@ fn ensure_openapi_extension(path: &str) -> String {
 
 fn infer_tag_from_selection(root: &TreeNode, selected: Option<&Vec<usize>>) -> Option<String> {
     let path = selected?;
-    if path.len() >= 2 {
-        let node = node_at_path(root, path)?;
-        if node.content.is_none() {
-            return Some(node.label.clone());
+    let node = node_at_path(root, path)?;
+    if node.content.is_none() {
+        return Some(node.label.clone());
+    }
+    if let Some(parent_path) = path.split_last().map(|(_, parent)| parent) {
+        if parent_path.is_empty() {
+            return None;
         }
-        if let Some(parent_path) = path.split_last().map(|(_, parent)| parent) {
-            if parent_path.len() >= 2 {
-                let parent = node_at_path(root, parent_path)?;
-                if parent.content.is_none() {
-                    return Some(parent.label.clone());
-                }
-            }
+        let parent = node_at_path(root, parent_path)?;
+        if parent.content.is_none() {
+            return Some(parent.label.clone());
         }
     }
     None
 }
 
-fn find_child_index_by_label(node: &TreeNode, label: &str) -> (usize, bool) {
-    for (index, child) in node.children.iter().enumerate() {
-        if child.label == label {
+fn find_tag_index_by_label(root: &TreeNode, label: &str) -> (usize, bool) {
+    for (index, child) in root.children.iter().enumerate() {
+        if child.content.is_none() && child.label == label {
             return (index, true);
         }
     }
-    (node.children.len(), false)
+    (root.children.len(), false)
 }
 
 fn normalize_request_path(value: &str) -> String {
@@ -756,38 +709,17 @@ fn strip_query(value: &str) -> String {
     value.split('?').next().unwrap_or("").to_string()
 }
 
-fn find_child_with_label<'a>(
-    root: &'a TreeNode,
-    path: &[usize],
-    label: &str,
-) -> Option<(Vec<usize>, &'a TreeNode)> {
-    let folder = node_at_path(root, path)?;
-    for (index, child) in folder.children.iter().enumerate() {
-        if child.label == label {
-            let mut child_path = path.to_vec();
-            child_path.push(index);
-            return Some((child_path, child));
-        }
-    }
-    None
-}
-
-fn find_request_path_by_label_in_server(
-    root: &TreeNode,
-    server_index: usize,
-    label: &str,
-) -> Option<Vec<usize>> {
-    let server = root.children.get(server_index)?;
-    for (child_index, child) in server.children.iter().enumerate() {
+fn find_request_path_by_label(root: &TreeNode, label: &str) -> Option<Vec<usize>> {
+    for (index, child) in root.children.iter().enumerate() {
         if child.content.is_some() {
             if child.label == label {
-                return Some(vec![server_index, child_index]);
+                return Some(vec![index]);
             }
             continue;
         }
-        for (grand_index, grand) in child.children.iter().enumerate() {
+        for (child_index, grand) in child.children.iter().enumerate() {
             if grand.content.is_some() && grand.label == label {
-                return Some(vec![server_index, child_index, grand_index]);
+                return Some(vec![index, child_index]);
             }
         }
     }

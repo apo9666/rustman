@@ -1,9 +1,10 @@
+use gloo::events::EventListener;
 use yew::prelude::*;
 
 use wasm_bindgen::JsCast;
 
 use crate::components::tree::directory::TreeDirectory;
-use crate::state::{TreeAction, TreeNode, TreeState};
+use crate::state::{TreeAction, TreeState};
 
 #[derive(Properties, Clone, PartialEq)]
 pub struct SideProps {
@@ -21,7 +22,7 @@ pub fn side(props: &SideProps) -> Html {
 
     {
         let tree_state = tree_state.clone();
-        let servers_len = tree_state.root.children.len();
+        let servers_len = tree_state.servers.len();
         let selected = tree_state.selected_server;
         use_effect_with((servers_len, selected), move |(len, selected)| {
             if *len > 0 && selected.is_none() {
@@ -38,7 +39,7 @@ pub fn side(props: &SideProps) -> Html {
         })
     };
 
-    let servers = tree_state.root.children.clone();
+    let servers = tree_state.servers.clone();
     let selected_server = tree_state
         .selected_server
         .filter(|index| *index < servers.len())
@@ -55,6 +56,7 @@ pub fn side(props: &SideProps) -> Html {
     };
 
     let menu_open = use_state(|| false);
+    let menu_ref = use_node_ref();
     let on_menu_toggle = {
         let menu_open = menu_open.clone();
         Callback::from(move |event: MouseEvent| {
@@ -62,6 +64,32 @@ pub fn side(props: &SideProps) -> Html {
             menu_open.set(!*menu_open);
         })
     };
+
+    {
+        let menu_open = menu_open.clone();
+        let menu_ref = menu_ref.clone();
+        use_effect_with(menu_open.clone(), move |is_open| {
+            if !**is_open {
+                return Box::new(|| ()) as Box<dyn FnOnce()>;
+            }
+            let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+                return Box::new(|| ()) as Box<dyn FnOnce()>;
+            };
+            let listener = EventListener::new(&document, "click", move |event| {
+                let target = event
+                    .target()
+                    .and_then(|target| target.dyn_into::<web_sys::Node>().ok());
+                let menu_node = menu_ref.cast::<web_sys::Node>();
+                if let (Some(menu_node), Some(target)) = (menu_node, target) {
+                    if menu_node.contains(Some(&target)) {
+                        return;
+                    }
+                }
+                menu_open.set(false);
+            });
+            Box::new(move || drop(listener)) as Box<dyn FnOnce()>
+        });
+    }
 
     let on_add_server = {
         let menu_open = menu_open.clone();
@@ -93,12 +121,7 @@ pub fn side(props: &SideProps) -> Html {
             let Some(index) = selected_server else {
                 return;
             };
-            let label = tree_state
-                .root
-                .children
-                .get(index)
-                .map(|node| node.label.clone())
-                .unwrap_or_default();
+            let label = tree_state.servers.get(index).cloned().unwrap_or_default();
             if label.is_empty() {
                 return;
             }
@@ -124,14 +147,14 @@ pub fn side(props: &SideProps) -> Html {
                                 html! { <option value="">{ "No servers" }</option> }
                             } else {
                                 html! { for servers.iter().enumerate().map(|(index, server)| {
-                                    html! { <option value={index.to_string()}>{ server.label.clone() }</option> }
+                                    html! { <option value={index.to_string()}>{ server.clone() }</option> }
                                 }) }
                             }
                         }
                     </select>
                     <span class="select-chevron"></span>
                 </div>
-                <div class="tree-menu-wrap">
+                <div class="tree-menu-wrap" ref={menu_ref}>
                     <button type="button" class="tree-row-menu" title="Servers" onclick={on_menu_toggle}>{ "⋯" }</button>
                     {
                         if *menu_open {
@@ -174,37 +197,10 @@ pub fn side(props: &SideProps) -> Html {
             }
             <div class="tree">
                 {
-                    if servers.is_empty() {
-                        html! { <div class="tree-empty">{ "Add a server to get started." }</div> }
+                    if tree_state.root.children.is_empty() {
+                        html! { <div class="tree-empty">{ "Add a tag to get started." }</div> }
                     } else {
-                        let mut tag_entries: Vec<(Vec<usize>, TreeNode)> = Vec::new();
-                        for (server_index, server) in servers.iter().enumerate() {
-                            for (tag_index, tag) in server.children.iter().cloned().enumerate() {
-                                tag_entries.push((vec![server_index, tag_index], tag));
-                            }
-                        }
-                        tag_entries.sort_by(|(path_a, node_a), (path_b, node_b)| {
-                            let is_file_a = node_a.content.is_some();
-                            let is_file_b = node_b.content.is_some();
-                            let type_cmp = is_file_a.cmp(&is_file_b);
-                            if type_cmp != std::cmp::Ordering::Equal {
-                                return type_cmp;
-                            }
-                            let label_cmp = node_a.label.to_lowercase().cmp(&node_b.label.to_lowercase());
-                            if label_cmp == std::cmp::Ordering::Equal {
-                                path_a.cmp(path_b)
-                            } else {
-                                label_cmp
-                            }
-                        });
-
-                        if tag_entries.is_empty() {
-                            html! { <div class="tree-empty">{ "Add a tag to get started." }</div> }
-                        } else {
-                            html! { for tag_entries.into_iter().map(|(path, node)| {
-                                html! { <TreeDirectory node={node} path={path} /> }
-                            }) }
-                        }
+                        html! { <TreeDirectory node={tree_state.root.clone()} path={vec![]} /> }
                     }
                 }
             </div>

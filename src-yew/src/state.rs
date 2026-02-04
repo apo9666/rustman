@@ -339,6 +339,7 @@ pub struct TreeNode {
 #[derive(Clone, PartialEq, Debug)]
 pub struct TreeState {
     pub root: TreeNode,
+    pub servers: Vec<String>,
     pub selected_path: Option<Vec<usize>>,
     pub pending_delete: Option<PendingDelete>,
     pub pending_move: Option<PendingMove>,
@@ -354,6 +355,7 @@ impl Default for TreeState {
                 expanded: true,
                 children: Vec::new(),
             },
+            servers: Vec::new(),
             selected_path: None,
             pending_delete: None,
             pending_move: None,
@@ -379,7 +381,8 @@ pub enum TreeAction {
     AddServer { label: String },
     RemoveServer { index: usize },
     SetSelectedServer { index: usize },
-    SetServers { servers: Vec<TreeNode> },
+    SetServers { servers: Vec<String> },
+    SetTree { root: TreeNode, servers: Vec<String> },
     AddChild { path: Vec<usize>, node: TreeNode },
     ReplaceNode { path: Vec<usize>, node: TreeNode },
     Rename { path: Vec<usize>, label: String },
@@ -402,37 +405,37 @@ impl Reducible for TreeState {
                 set_expanded(&mut state.root, &path, open);
             }
             TreeAction::AddServer { label } => {
-                state.root.children.push(TreeNode {
-                    label,
-                    content: None,
-                    expanded: true,
-                    children: Vec::new(),
-                });
+                state.servers.push(label);
                 if state.selected_server.is_none() {
-                    state.selected_server = Some(state.root.children.len().saturating_sub(1));
+                    state.selected_server = Some(state.servers.len().saturating_sub(1));
                 }
             }
             TreeAction::RemoveServer { index } => {
-                if index < state.root.children.len() {
-                    state.root.children.remove(index);
+                if index < state.servers.len() {
+                    state.servers.remove(index);
                 }
-                state.selected_path = adjust_selected_path_for_server_removal(
-                    state.selected_path.take(),
-                    index,
-                );
                 state.pending_move = None;
                 state.pending_delete = None;
-                state.selected_server = adjust_selected_server(state.selected_server, index, state.root.children.len());
+                state.selected_server =
+                    adjust_selected_server(state.selected_server, index, state.servers.len());
             }
             TreeAction::SetSelectedServer { index } => {
-                if index < state.root.children.len() {
+                if index < state.servers.len() {
                     state.selected_server = Some(index);
-                    state.selected_path = None;
                 }
             }
             TreeAction::SetServers { servers } => {
-                state.root.children = servers;
-                state.selected_server = if state.root.children.is_empty() {
+                state.servers = servers;
+                state.selected_server = if state.servers.is_empty() {
+                    None
+                } else {
+                    Some(0)
+                };
+            }
+            TreeAction::SetTree { root, servers } => {
+                state.root = root;
+                state.servers = servers;
+                state.selected_server = if state.servers.is_empty() {
                     None
                 } else {
                     Some(0)
@@ -614,23 +617,6 @@ fn is_prefix_path(prefix: &[usize], path: &[usize]) -> bool {
         .iter()
         .zip(path.iter())
         .all(|(a, b)| a == b)
-}
-
-fn adjust_selected_path_for_server_removal(
-    selected: Option<Vec<usize>>,
-    removed_index: usize,
-) -> Option<Vec<usize>> {
-    let mut path = selected?;
-    let Some(first) = path.first_mut() else {
-        return None;
-    };
-    if *first == removed_index {
-        return None;
-    }
-    if *first > removed_index {
-        *first = first.saturating_sub(1);
-    }
-    Some(path)
 }
 
 fn adjust_selected_server(

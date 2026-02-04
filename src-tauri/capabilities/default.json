@@ -12,10 +12,13 @@
     "dialog:allow-message",
     "dialog:allow-confirm",
     "fs:allow-read-file",
+    "fs:allow-read-text-file",
     "fs:allow-exists",
     "fs:allow-write-file",
     "fs:allow-write-text-file",
+    "fs:allow-desktop-read",
     "fs:allow-desktop-write",
+    "fs:allow-download-read",
     "fs:allow-download-write"
   ]
 }

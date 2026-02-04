@@ -25,9 +25,21 @@ body,
 
 .sidebar {
   width: 280px;
+  flex: 0 0 auto;
   background: #27272a;
   overflow-y: auto;
   border-right: 1px solid #3f3f46;
+}
+
+.sidebar-resize {
+  width: 6px;
+  cursor: col-resize;
+  background: #27272a;
+  border-right: 1px solid #3f3f46;
+}
+
+.sidebar-resize:hover {
+  background: #3f3f46;
 }
 
 .main {

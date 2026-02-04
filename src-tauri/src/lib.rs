@@ -67,7 +67,27 @@ struct HttpResponse {
 }
 
 #[tauri::command]
-async fn send_request(request: HttpRequest) -> Result<HttpResponse, String> {
+async fn send_request(
+    request: Option<HttpRequest>,
+    method: Option<String>,
+    url: Option<String>,
+    headers: Option<HashMap<String, String>>,
+    body: Option<String>,
+) -> Result<HttpResponse, String> {
+    let request = match request {
+        Some(request) => request,
+        None => {
+            let method = method.ok_or_else(|| "missing request.method".to_string())?;
+            let url = url.ok_or_else(|| "missing request.url".to_string())?;
+            HttpRequest {
+                method,
+                url,
+                headers: headers.unwrap_or_default(),
+                body,
+            }
+        }
+    };
+
     let method = Method::from_bytes(request.method.as_bytes())
         .map_err(|err| format!("invalid method: {err}"))?;
 

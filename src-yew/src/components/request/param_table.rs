@@ -23,7 +23,7 @@ pub fn param_table(props: &ParamTableProps) -> Html {
 
     let update_params = {
         let tab_state = tab_state.clone();
-        move |mut next_params: Vec<Param>| {
+        move |next_params: Vec<Param>| {
             let next_url = url_from_params(&url, &next_params);
             tab_state.dispatch(TabAction::UpdateUrlAndParams {
                 index,

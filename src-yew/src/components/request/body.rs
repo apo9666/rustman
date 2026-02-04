@@ -1,12 +1,14 @@
 use wasm_bindgen::JsCast;
 use yew::prelude::*;
 
+use crate::components::json_highlight::{highlight_json, parse_json_value};
 use crate::state::{TabAction, TabState};
 
 #[derive(Properties, Clone, PartialEq)]
 pub struct RequestBodyProps {
     pub tab_index: usize,
     pub body: String,
+    pub formatted: bool,
 }
 
 #[function_component(RequestBody)]
@@ -17,6 +19,7 @@ pub fn request_body(props: &RequestBodyProps) -> Html {
     };
     let index = props.tab_index;
     let body = props.body.clone();
+    let formatted = props.formatted;
 
     let on_change = {
         let tab_state = tab_state.clone();
@@ -28,14 +31,29 @@ pub fn request_body(props: &RequestBodyProps) -> Html {
 
     let on_format = {
         let tab_state = tab_state.clone();
+        let body_for_format = body.clone();
         Callback::from(move |_| {
-            let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&body) else {
+            if formatted {
+                tab_state.dispatch(TabAction::SetBodyState {
+                    index,
+                    body: body_for_format.clone(),
+                    formatted: false,
+                });
                 return;
-            };
-            let Ok(pretty) = serde_json::to_string_pretty(&parsed) else {
-                return;
-            };
-            tab_state.dispatch(TabAction::UpdateBody { index, body: pretty });
+            }
+
+            let mut next_body = body_for_format.clone();
+            if let Some(parsed) = parse_json_value(&body_for_format) {
+                if let Ok(pretty) = serde_json::to_string_pretty(&parsed) {
+                    next_body = pretty;
+                }
+            }
+
+            tab_state.dispatch(TabAction::SetBodyState {
+                index,
+                body: next_body,
+                formatted: true,
+            });
         })
     };
 
@@ -43,11 +61,23 @@ pub fn request_body(props: &RequestBodyProps) -> Html {
             <div class="table-wrap body-wrap">
                 <div class="request-title">
                     <h1>{ "Body" }</h1>
-                    <button class="button secondary" onclick={on_format}>{ "Format" }</button>
+                    <button class="button secondary" onclick={on_format}>
+                        { if formatted { "Edit" } else { "Format" } }
+                    </button>
                 </div>
                 <hr class="section-divider" />
                 <div class="body-editor-wrap">
-                    <textarea class="editor body-editor" value={props.body.clone()} oninput={on_change} />
+                    {
+                        if formatted {
+                            if let Some(highlight) = highlight_json(&body) {
+                                html! { <pre class="editor body-editor response-code"><code>{ highlight }</code></pre> }
+                            } else {
+                                html! { <pre class="editor body-editor response-code"><code>{ body.clone() }</code></pre> }
+                            }
+                        } else {
+                            html! { <textarea class="editor body-editor" value={body.clone()} oninput={on_change} /> }
+                        }
+                    }
                 </div>
             </div>
     }

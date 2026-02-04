@@ -10,6 +10,8 @@ pub struct Response {
     pub headers: HashMap<String, String>,
     pub raw_headers: HashMap<String, Vec<String>>,
     pub data: String,
+    #[serde(default)]
+    pub formatted: bool,
 }
 
 impl Default for Response {
@@ -21,6 +23,7 @@ impl Default for Response {
             headers: HashMap::new(),
             raw_headers: HashMap::new(),
             data: String::new(),
+            formatted: false,
         }
     }
 }
@@ -112,6 +115,7 @@ pub struct TabContent {
     pub method: MethodEnum,
     pub url: String,
     pub body: String,
+    pub body_formatted: bool,
     pub headers: Vec<Header>,
     pub params: Vec<Param>,
     pub response: Response,
@@ -123,6 +127,7 @@ impl TabContent {
             method: content.method,
             url: content.url.clone(),
             body: content.body.clone(),
+            body_formatted: false,
             headers: content.headers.clone(),
             params: content.params.clone(),
             response: Response::default(),
@@ -136,6 +141,7 @@ impl Default for TabContent {
             method: MethodEnum::Get,
             url: String::new(),
             body: String::new(),
+            body_formatted: false,
             headers: vec![
                 Header {
                     enable: true,
@@ -190,6 +196,11 @@ pub enum TabAction {
     UpdateMethod { index: usize, method: MethodEnum },
     UpdateUrl { index: usize, url: String },
     UpdateBody { index: usize, body: String },
+    SetBodyState {
+        index: usize,
+        body: String,
+        formatted: bool,
+    },
     SetHeaders { index: usize, headers: Vec<Header> },
     UpdateUrlAndParams {
         index: usize,
@@ -250,6 +261,17 @@ impl Reducible for TabState {
             TabAction::UpdateBody { index, body } => {
                 if let Some(tab) = state.tabs.get_mut(index) {
                     tab.content.body = body;
+                    tab.content.body_formatted = false;
+                }
+            }
+            TabAction::SetBodyState {
+                index,
+                body,
+                formatted,
+            } => {
+                if let Some(tab) = state.tabs.get_mut(index) {
+                    tab.content.body = body;
+                    tab.content.body_formatted = formatted;
                 }
             }
             TabAction::SetHeaders { index, headers } => {

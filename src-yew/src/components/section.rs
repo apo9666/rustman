@@ -140,7 +140,11 @@ pub fn section(props: &SectionProps) -> Html {
                                 <RequestContent tab_index={active} content={tab.content.clone()} />
                             </div>
                             <div class="resize-handle" onmousedown={on_resize_start}></div>
-                            <ResponseContent tab_index={active} data={tab.content.response.data.clone()} />
+                            <ResponseContent
+                                tab_index={active}
+                                data={tab.content.response.data.clone()}
+                                formatted={tab.content.response.formatted}
+                            />
                         </div>
                     }
                 } else {

@@ -5,7 +5,7 @@ use url::Url;
 
 use crate::state::{MethodEnum, TabContent, TreeNode};
 
-pub fn build_tree_from_openapi(text: &str) -> Result<TreeNode, String> {
+pub fn build_tree_from_openapi(text: &str) -> Result<(TreeNode, Vec<String>), String> {
     let yaml: serde_yaml::Value =
         serde_yaml::from_str(text).map_err(|err| format!("YAML parse error: {err}"))?;
     let json: Value = serde_json::to_value(yaml)
@@ -17,7 +17,7 @@ pub fn build_tree_from_openapi(text: &str) -> Result<TreeNode, String> {
         .unwrap_or("OpenAPI")
         .to_string();
 
-    let servers = json
+    let mut servers = json
         .get("servers")
         .and_then(|value| value.as_array())
         .cloned()
@@ -29,81 +29,81 @@ pub fn build_tree_from_openapi(text: &str) -> Result<TreeNode, String> {
         .cloned()
         .unwrap_or_default();
 
-    let mut server_nodes = Vec::new();
-    for server in servers {
-        let Some(url) = server.get("url").and_then(|value| value.as_str()) else {
+    let server_list: Vec<String> = servers
+        .iter()
+        .filter_map(|server| server.get("url").and_then(|value| value.as_str()))
+        .map(|value| value.to_string())
+        .collect();
+
+    let mut servers = server_list;
+    if servers.is_empty() && !paths.is_empty() {
+        servers.push("http://localhost".to_string());
+    }
+
+    let mut tag_map: std::collections::BTreeMap<String, Vec<TreeNode>> =
+        std::collections::BTreeMap::new();
+    let mut root_nodes: Vec<TreeNode> = Vec::new();
+    let mut path_entries: Vec<_> = paths.iter().collect();
+    path_entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+    for (path_key, path_value) in path_entries {
+        let Some(path_obj) = path_value.as_object() else {
             continue;
         };
-
-        let mut tag_map: std::collections::BTreeMap<String, Vec<TreeNode>> =
-            std::collections::BTreeMap::new();
-        let mut root_nodes: Vec<TreeNode> = Vec::new();
-        let mut path_entries: Vec<_> = paths.iter().collect();
-        path_entries.sort_by(|(a, _), (b, _)| a.cmp(b));
-        for (path_key, path_value) in path_entries {
-            let Some(path_obj) = path_value.as_object() else {
+        for method in MethodEnum::all() {
+            let method_key = method.key();
+            let Some(method_value) = path_obj.get(method_key) else {
                 continue;
             };
-            for method in MethodEnum::all() {
-                let method_key = method.key();
-                let Some(method_value) = path_obj.get(method_key) else {
-                    continue;
-                };
-                let content = convert_content(path_key, *method, method_value);
-                let node = TreeNode {
-                    label: path_key.clone(),
-                    content: Some(content),
-                    expanded: false,
-                    children: Vec::new(),
-                };
-                let tag_label = method_value
-                    .get("tags")
-                    .and_then(|value| value.as_array())
-                    .and_then(|tags| tags.first())
-                    .and_then(|value| value.as_str())
-                    .map(|value| value.trim())
-                    .filter(|value| !value.is_empty());
+            let content = convert_content(path_key, *method, method_value);
+            let node = TreeNode {
+                label: path_key.clone(),
+                content: Some(content),
+                expanded: false,
+                children: Vec::new(),
+            };
+            let tag_label = method_value
+                .get("tags")
+                .and_then(|value| value.as_array())
+                .and_then(|tags| tags.first())
+                .and_then(|value| value.as_str())
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty());
 
-                if let Some(tag_label) = tag_label {
-                    tag_map.entry(tag_label.to_string()).or_default().push(node);
-                } else {
-                    root_nodes.push(node);
-                }
+            if let Some(tag_label) = tag_label {
+                tag_map.entry(tag_label.to_string()).or_default().push(node);
+            } else {
+                root_nodes.push(node);
             }
         }
+    }
 
-        let mut tag_nodes: Vec<TreeNode> = tag_map
-            .into_iter()
-            .map(|(label, children)| TreeNode {
-                label,
-                content: None,
-                expanded: true,
-                children,
-            })
-            .collect();
-
-        let mut children = Vec::new();
-        children.append(&mut root_nodes);
-        children.append(&mut tag_nodes);
-
-        server_nodes.push(TreeNode {
-            label: url.to_string(),
+    let mut tag_nodes: Vec<TreeNode> = tag_map
+        .into_iter()
+        .map(|(label, children)| TreeNode {
+            label,
             content: None,
             expanded: true,
             children,
-        });
-    }
+        })
+        .collect();
 
-    Ok(TreeNode {
-        label: title,
-        content: None,
-        expanded: true,
-        children: server_nodes,
-    })
+    let mut children = Vec::new();
+    children.append(&mut root_nodes);
+    children.append(&mut tag_nodes);
+
+    Ok((
+        TreeNode {
+            label: title,
+            content: None,
+            expanded: true,
+            children,
+        },
+        servers,
+    ))
 }
 
-pub fn build_openapi_from_tree(root: &TreeNode) -> Result<String, String> {
-    build_openapi_from_tree_nodes(root)
+pub fn build_openapi_from_tree(root: &TreeNode, servers: &[String]) -> Result<String, String> {
+    build_openapi_from_tree_nodes(root, servers)
 }
 
 fn convert_content(path_key: &str, method: MethodEnum, method_value: &Value) -> TabContent {
@@ -130,30 +130,33 @@ fn extract_body(method_value: &Value) -> String {
     serde_json::to_string_pretty(example).unwrap_or_default()
 }
 
-fn build_openapi_from_tree_nodes(root: &TreeNode) -> Result<String, String> {
+fn build_openapi_from_tree_nodes(root: &TreeNode, servers: &[String]) -> Result<String, String> {
     if root.children.is_empty() {
         return Err("Nenhuma request para exportar.".to_string());
     }
 
-    let mut servers = BTreeSet::new();
+    let mut servers_set = BTreeSet::new();
+    let mut tag_names = BTreeSet::new();
     let mut paths: Map<String, Value> = Map::new();
     let mut seen = HashSet::new();
 
-    let mut push_operation = |node: &TreeNode, content: &TabContent, tag_label: Option<&str>| {
-        let path_key = normalize_path(&strip_query(&content.url));
-        let method_key = content.method.key().to_string();
-        let dedupe_key = (method_key.clone(), path_key.clone());
-        if !seen.insert(dedupe_key) {
-            return;
-        }
-
-        let mut operation = Map::new();
-        operation.insert("summary".to_string(), Value::String(node.label.clone()));
-        if let Some(tag_label) = tag_label {
-            if !tag_label.trim().is_empty() {
-                operation.insert("tags".to_string(), json!([tag_label]));
+    let mut push_operation =
+        |node: &TreeNode, content: &TabContent, tag_label: Option<&str>| {
+            let path_key = normalize_path(&strip_query(&content.url));
+            let method_key = content.method.key().to_string();
+            let dedupe_key = (method_key.clone(), path_key.clone());
+            if !seen.insert(dedupe_key) {
+                return;
             }
-        }
+
+            let mut operation = Map::new();
+            operation.insert("summary".to_string(), Value::String(node.label.clone()));
+            if let Some(tag_label) = tag_label {
+                if !tag_label.trim().is_empty() {
+                    tag_names.insert(tag_label.to_string());
+                    operation.insert("tags".to_string(), json!([tag_label]));
+                }
+            }
 
         let parameters = build_parameters(content);
         if !parameters.is_empty() {
@@ -174,23 +177,22 @@ fn build_openapi_from_tree_nodes(root: &TreeNode) -> Result<String, String> {
         }
     };
 
-    for server in &root.children {
-        if !server.label.trim().is_empty() {
-            servers.insert(server.label.clone());
-        }
-        for node in &server.children {
-            if let Some(content) = node.content.as_ref() {
-                push_operation(node, content, None);
-                continue;
-            }
+    for server in servers.iter().filter(|value| !value.trim().is_empty()) {
+        servers_set.insert(server.clone());
+    }
 
-            let tag_label = node.label.clone();
-            for child in &node.children {
-                let Some(content) = child.content.as_ref() else {
-                    continue;
-                };
-                push_operation(child, content, Some(&tag_label));
-            }
+    for node in &root.children {
+        if let Some(content) = node.content.as_ref() {
+            push_operation(node, content, None);
+            continue;
+        }
+
+        let tag_label = node.label.clone();
+        for child in &node.children {
+            let Some(content) = child.content.as_ref() else {
+                continue;
+            };
+            push_operation(child, content, Some(&tag_label));
         }
     }
 
@@ -198,7 +200,7 @@ fn build_openapi_from_tree_nodes(root: &TreeNode) -> Result<String, String> {
         return Err("Nenhuma request válida para exportar.".to_string());
     }
 
-    let server_list: Vec<Value> = servers
+    let server_list: Vec<Value> = servers_set
         .into_iter()
         .map(|url| json!({ "url": url }))
         .collect();
@@ -216,6 +218,7 @@ fn build_openapi_from_tree_nodes(root: &TreeNode) -> Result<String, String> {
             "version": "1.0.0",
         },
         "servers": server_list,
+        "tags": tag_names.into_iter().map(|name| json!({ "name": name })).collect::<Vec<_>>(),
         "paths": Value::Object(paths),
     });
 

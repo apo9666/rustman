@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use gloo::events::EventListener;
 use wasm_bindgen::JsCast;
 use yew::prelude::*;
 
@@ -55,6 +56,7 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
     let is_editing = use_state(|| false);
     let draft = use_state(|| props.node.label.clone());
     let menu_open = use_state(|| false);
+    let menu_ref = use_node_ref();
 
     {
         let label = props.node.label.clone();
@@ -65,7 +67,7 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
         });
     }
 
-    if props.node.label == "Root" {
+    if props.path.is_empty() {
         return html! { <>{ render_children(&props.node, &props.path) }</> };
     }
 
@@ -140,6 +142,32 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
             menu_open.set(!*menu_open);
         })
     };
+
+    {
+        let menu_open = menu_open.clone();
+        let menu_ref = menu_ref.clone();
+        use_effect_with(menu_open.clone(), move |is_open| {
+            if !**is_open {
+                return Box::new(|| ()) as Box<dyn FnOnce()>;
+            }
+            let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+                return Box::new(|| ()) as Box<dyn FnOnce()>;
+            };
+            let listener = EventListener::new(&document, "click", move |event| {
+                let target = event
+                    .target()
+                    .and_then(|target| target.dyn_into::<web_sys::Node>().ok());
+                let menu_node = menu_ref.cast::<web_sys::Node>();
+                if let (Some(menu_node), Some(target)) = (menu_node, target) {
+                    if menu_node.contains(Some(&target)) {
+                        return;
+                    }
+                }
+                menu_open.set(false);
+            });
+            Box::new(move || drop(listener)) as Box<dyn FnOnce()>
+        });
+    }
 
     let on_menu_edit = {
         let menu_open = menu_open.clone();
@@ -244,7 +272,7 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
                         if !*is_editing {
                             html! {
                                 <div class="tree-row-actions">
-                                    <div class="tree-menu-wrap">
+                                <div class="tree-menu-wrap" ref={menu_ref.clone()}>
                                         <button
                                             type="button"
                                             class="tree-row-menu"
@@ -259,9 +287,6 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
                                                     <div class="tree-menu">
                                                         <button type="button" class="tree-menu-item" onclick={on_menu_edit.clone()}>
                                                             { "Edit" }
-                                                        </button>
-                                                        <button type="button" class="tree-menu-item" onclick={on_menu_move.clone()}>
-                                                            { "Move" }
                                                         </button>
                                                         <button type="button" class="tree-menu-item danger" onclick={on_menu_delete.clone()}>
                                                             { "Remove" }
@@ -357,7 +382,7 @@ pub fn tree_directory(props: &TreeDirectoryProps) -> Html {
                 if !*is_editing {
                     html! {
                         <div class="tree-row-actions">
-                            <div class="tree-menu-wrap">
+                            <div class="tree-menu-wrap" ref={menu_ref.clone()}>
                                 <button
                                     type="button"
                                     class="tree-row-menu"

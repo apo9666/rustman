@@ -36,8 +36,8 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
     let content = props.content.clone();
     let selected_server = tree_state
         .selected_server
-        .and_then(|index| tree_state.root.children.get(index))
-        .map(|node| node.label.clone());
+        .and_then(|index| tree_state.servers.get(index))
+        .cloned();
 
     let on_method_change = {
         let tab_state = tab_state.clone();

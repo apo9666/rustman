@@ -193,6 +193,7 @@ pub enum TabAction {
     OpenTab { label: String, content: TabContent },
     CloseTab(usize),
     SetActive(usize),
+    RenameTab { index: usize, label: String },
     UpdateMethod { index: usize, method: MethodEnum },
     UpdateUrl { index: usize, url: String },
     UpdateBody { index: usize, body: String },
@@ -246,6 +247,11 @@ impl Reducible for TabState {
             TabAction::SetActive(index) => {
                 if index < state.tabs.len() {
                     state.active_tab_id = index;
+                }
+            }
+            TabAction::RenameTab { index, label } => {
+                if let Some(tab) = state.tabs.get_mut(index) {
+                    tab.label = label;
                 }
             }
             TabAction::UpdateMethod { index, method } => {
@@ -306,6 +312,8 @@ pub struct TreeNode {
 #[derive(Clone, PartialEq, Debug)]
 pub struct TreeState {
     pub root: TreeNode,
+    pub selected_path: Option<Vec<usize>>,
+    pub pending_delete: Option<PendingDelete>,
 }
 
 impl Default for TreeState {
@@ -317,8 +325,16 @@ impl Default for TreeState {
                 expanded: true,
                 children: Vec::new(),
             },
+            selected_path: None,
+            pending_delete: None,
         }
     }
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct PendingDelete {
+    pub path: Vec<usize>,
+    pub label: String,
 }
 
 pub enum TreeAction {
@@ -326,6 +342,10 @@ pub enum TreeAction {
     AddRootChild(TreeNode),
     AddChild { path: Vec<usize>, node: TreeNode },
     Rename { path: Vec<usize>, label: String },
+    SetSelected { path: Vec<usize> },
+    RequestDelete { path: Vec<usize>, label: String },
+    ClearPendingDelete,
+    RemoveNode { path: Vec<usize> },
 }
 
 impl Reducible for TreeState {
@@ -345,6 +365,20 @@ impl Reducible for TreeState {
             }
             TreeAction::Rename { path, label } => {
                 rename_node(&mut state.root, &path, label);
+            }
+            TreeAction::SetSelected { path } => {
+                state.selected_path = Some(path);
+            }
+            TreeAction::RequestDelete { path, label } => {
+                state.pending_delete = Some(PendingDelete { path, label });
+            }
+            TreeAction::ClearPendingDelete => {
+                state.pending_delete = None;
+            }
+            TreeAction::RemoveNode { path } => {
+                remove_node(&mut state.root, &path);
+                state.selected_path = None;
+                state.pending_delete = None;
             }
         }
         Rc::new(state)
@@ -399,5 +433,26 @@ fn rename_node(node: &mut TreeNode, path: &[usize], label: String) {
 
     if let Some(target) = node.children.get_mut(*first) {
         rename_node(target, rest, label);
+    }
+}
+
+fn remove_node(node: &mut TreeNode, path: &[usize]) {
+    if path.is_empty() {
+        return;
+    }
+
+    let Some((first, rest)) = path.split_first() else {
+        return;
+    };
+
+    if rest.is_empty() {
+        if *first < node.children.len() {
+            node.children.remove(*first);
+        }
+        return;
+    }
+
+    if let Some(target) = node.children.get_mut(*first) {
+        remove_node(target, rest);
     }
 }

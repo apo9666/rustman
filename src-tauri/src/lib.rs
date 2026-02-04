@@ -19,7 +19,7 @@ pub fn run() {
             let save = MenuItem::with_id(
                 handle,
                 "save",
-                "Export OpenAPI v3",
+                "Save",
                 true,
                 Some("cmdOrControl+S"),
             )?;

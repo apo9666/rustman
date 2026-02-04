@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashSet};
 use serde_json::{json, Map, Value};
 use url::Url;
 
-use crate::state::{MethodEnum, Param, TabContent, TreeNode};
+use crate::state::{Header, MethodEnum, Param, TabContent, TreeNode};
 
 pub fn build_tree_from_openapi(text: &str) -> Result<(TreeNode, Vec<String>), String> {
     let yaml: serde_yaml::Value =
@@ -115,11 +115,13 @@ fn convert_content(
     let path = normalize_path(path_key);
     let body = extract_body(method_value, root);
     let path_params = extract_path_params(path_key);
+    let headers = extract_headers(method_value, root);
     TabContent {
         url: path,
         method,
         body,
         path_params,
+        headers,
         ..TabContent::default()
     }
 }
@@ -145,6 +147,87 @@ fn extract_body(method_value: &Value, root: &Value) -> String {
     };
 
     format_body_example(&example, content_type)
+}
+
+fn extract_headers(method_value: &Value, root: &Value) -> Vec<Header> {
+    let mut headers = TabContent::default().headers;
+    let mut updated = false;
+
+    if let Some(parameters) = method_value.get("parameters").and_then(|value| value.as_array()) {
+        for param in parameters {
+            let param = resolve_ref(param, root, 0).unwrap_or(param);
+            if param.get("in").and_then(|value| value.as_str()) != Some("header") {
+                continue;
+            }
+            let name = param.get("name").and_then(|value| value.as_str()).unwrap_or("").trim();
+            if name.is_empty() {
+                continue;
+            }
+            let value = header_value_from_param(param, root).unwrap_or_default();
+            upsert_header(&mut headers, name, value);
+            updated = true;
+        }
+    }
+
+    if let Some(request_body) = method_value.get("requestBody") {
+        let request_body = resolve_ref(request_body, root, 0).unwrap_or(request_body);
+        if let Some(content) = request_body.get("content").and_then(|value| value.as_object()) {
+            if let Some((content_type, _)) = select_content_entry(content) {
+                upsert_header(&mut headers, "Content-Type", content_type.to_string());
+                updated = true;
+            }
+        }
+    }
+
+    if !updated && headers.is_empty() {
+        headers.push(Header {
+            enable: true,
+            key: String::new(),
+            value: String::new(),
+        });
+    }
+
+    headers
+}
+
+fn upsert_header(headers: &mut Vec<Header>, name: &str, value: String) {
+    for header in headers.iter_mut() {
+        if header.key.eq_ignore_ascii_case(name) {
+            header.value = value;
+            header.enable = true;
+            return;
+        }
+    }
+    headers.push(Header {
+        enable: true,
+        key: name.to_string(),
+        value,
+    });
+}
+
+fn header_value_from_param(param: &Value, root: &Value) -> Option<String> {
+    if let Some(example) = param.get("example") {
+        let resolved = resolve_ref(example, root, 0).unwrap_or(example);
+        return Some(value_to_string(resolved));
+    }
+    if let Some(schema) = param.get("schema") {
+        let example = extract_schema_example(Some(schema), root)?;
+        return Some(value_to_string(&example));
+    }
+    None
+}
+
+fn value_to_string(value: &Value) -> String {
+    if let Some(text) = value.as_str() {
+        return text.to_string();
+    }
+    match value {
+        Value::Null => String::new(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        Value::String(value) => value.clone(),
+        _ => serde_json::to_string(value).unwrap_or_default(),
+    }
 }
 
 fn select_content_entry(content: &serde_json::Map<String, Value>) -> Option<(&str, &Value)> {
@@ -456,9 +539,6 @@ fn build_parameters(content: &TabContent) -> Vec<Value> {
         if key.is_empty() {
             continue;
         }
-        if matches_ignore_case(key, "content-type") || matches_ignore_case(key, "accept") {
-            continue;
-        }
         push_parameter(
             &mut parameters,
             &mut seen,
@@ -534,9 +614,6 @@ fn build_request_body(content: &TabContent) -> Option<Value> {
     }
 }
 
-fn matches_ignore_case(value: &str, other: &str) -> bool {
-    value.eq_ignore_ascii_case(other)
-}
 
 fn parse_query_pairs(value: &str) -> Vec<(String, String)> {
     let trimmed = value.trim();

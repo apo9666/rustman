@@ -6,7 +6,7 @@ use yew::prelude::*;
 
 use crate::components::section::Section;
 use crate::components::side::Side;
-use crate::openapi::build_tree_from_openapi;
+use crate::openapi::{build_openapi_from_tree, build_tree_from_openapi};
 use crate::state::{Tab, TabAction, TabState, TreeAction, TreeNode, TreeState};
 use crate::tauri_api;
 
@@ -14,6 +14,7 @@ use crate::tauri_api;
 pub fn app() -> Html {
     let tree_state = use_reducer(TreeState::default);
     let tab_state = use_reducer(TabState::default);
+    let tree_state_ref = use_mut_ref(|| tree_state.clone());
     let app_ref = use_node_ref();
     let sidebar_width = use_state(|| 280.0);
     let dragging = use_state(|| false);
@@ -22,6 +23,11 @@ pub fn app() -> Html {
     let save_name = use_state(String::new);
     let pending_tab = use_state(|| None::<Tab>);
     let pending_tab_index = use_state(|| None::<usize>);
+
+    {
+        let mut state = tree_state_ref.borrow_mut();
+        *state = tree_state.clone();
+    }
 
     let open_save_dialog = {
         let save_dialog_open = save_dialog_open.clone();
@@ -49,8 +55,7 @@ pub fn app() -> Html {
     };
 
     {
-        let tree_state = tree_state.clone();
-        let tab_state = tab_state.clone();
+        let tree_state_ref = tree_state_ref.clone();
         use_effect_with((), move |_| {
             let handler = Closure::wrap(Box::new(move |event: JsValue| {
                 let Some(payload) = event_payload(&event) else {
@@ -58,18 +63,16 @@ pub fn app() -> Html {
                 };
                 match payload.as_str() {
                     "open-event" => {
-                        let tree_state = tree_state.clone();
+                        let tree_state = tree_state_ref.borrow().clone();
                         spawn_local(async move {
                             open_openapi(tree_state).await;
                         });
                     }
                     "save-event" => {
-                        let tab_state = tab_state.clone();
-                        let index = tab_state.active_tab_id;
-                        let Some(tab) = tab_state.tabs.get(index).cloned() else {
-                            return;
-                        };
-                        open_save_dialog.emit((index, tab));
+                        let tree_state = tree_state_ref.borrow().clone();
+                        spawn_local(async move {
+                            export_openapi(tree_state).await;
+                        });
                     }
                     _ => {}
                 }
@@ -347,6 +350,47 @@ async fn open_openapi(tree_state: UseReducerHandle<TreeState>) {
     tree_state.dispatch(TreeAction::AddRootChild(node));
 }
 
+async fn export_openapi(tree_state: UseReducerHandle<TreeState>) {
+    let path = match tauri_api::dialog_save().await {
+        Ok(Some(path)) => path,
+        Ok(None) => return,
+        Err(err) => {
+            show_alert(&format!("Falha ao abrir diálogo de salvar: {err:?}"));
+            return;
+        }
+    };
+
+    let text = match build_openapi_from_tree(&tree_state.root) {
+        Ok(text) => text,
+        Err(err) => {
+            show_alert(&err);
+            return;
+        }
+    };
+
+    let target = ensure_openapi_extension(&path);
+    let create_new_options = r#"{"createNew":true,"create":true}"#;
+    match tauri_api::fs_write_text_with_options(&target, &text, Some(create_new_options)).await {
+        Ok(()) => return,
+        Err(err) => {
+            let message = tauri_api::js_error_to_string(&err);
+            if is_exists_error(&message) {
+                if !show_confirm(&format!("Arquivo já existe. Substituir?\n{target}")) {
+                    return;
+                }
+                if let Err(err) = tauri_api::fs_write_text(&target, &text).await {
+                    show_alert(&format!(
+                        "Falha ao salvar o arquivo: {}",
+                        tauri_api::js_error_to_string(&err)
+                    ));
+                }
+                return;
+            }
+            show_alert(&format!("Falha ao salvar o arquivo: {message}"));
+        }
+    }
+}
+
 fn resolve_save_path(root: &TreeNode, selected: Option<&Vec<usize>>) -> Vec<usize> {
     if let Some(path) = selected {
         if is_folder_path(root, path) {
@@ -363,12 +407,37 @@ fn resolve_save_path(root: &TreeNode, selected: Option<&Vec<usize>>) -> Vec<usiz
     Vec::new()
 }
 
+fn ensure_openapi_extension(path: &str) -> String {
+    let lower = path.to_lowercase();
+    if lower.ends_with(".yaml") || lower.ends_with(".yml") || lower.ends_with(".json") {
+        return path.to_string();
+    }
+    format!("{path}.yaml")
+}
+
 fn event_target_value(event: &InputEvent) -> String {
     event
         .target()
         .and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
         .map(|input| input.value())
         .unwrap_or_default()
+}
+
+fn show_alert(message: &str) {
+    if let Some(window) = web_sys::window() {
+        let _ = window.alert_with_message(message);
+    }
+}
+
+fn show_confirm(message: &str) -> bool {
+    web_sys::window()
+        .and_then(|window| window.confirm_with_message(message).ok())
+        .unwrap_or(false)
+}
+
+fn is_exists_error(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    lower.contains("exists") || lower.contains("exist") || lower.contains("eexist")
 }
 
 fn is_folder_path(root: &TreeNode, path: &[usize]) -> bool {

@@ -3,7 +3,6 @@ use yew::prelude::*;
 
 use wasm_bindgen::JsCast;
 
-use crate::components::tree::directory::TreeDirectory;
 use crate::state::{TreeAction, TreeState};
 
 #[derive(Properties, Clone, PartialEq)]
@@ -57,6 +56,7 @@ pub fn side(props: &SideProps) -> Html {
 
     let menu_open = use_state(|| false);
     let menu_ref = use_node_ref();
+    let pending_remove_server = use_state(|| None::<usize>);
     let on_menu_toggle = {
         let menu_open = menu_open.clone();
         Callback::from(move |event: MouseEvent| {
@@ -115,24 +115,21 @@ pub fn side(props: &SideProps) -> Html {
         let tree_state = tree_state.clone();
         let menu_open = menu_open.clone();
         let selected_server = selected_server.clone();
+        let pending_remove_server = pending_remove_server.clone();
         Callback::from(move |event: MouseEvent| {
             event.stop_propagation();
             menu_open.set(false);
             let Some(index) = selected_server else {
                 return;
             };
-            let label = tree_state.servers.get(index).cloned().unwrap_or_default();
-            if label.is_empty() {
-                return;
+            if tree_state.servers.get(index).is_some() {
+                pending_remove_server.set(Some(index));
             }
-            if !confirm(&format!("Remove server?\n{label}")) {
-                return;
-            }
-            tree_state.dispatch(TreeAction::RemoveServer { index });
         })
     };
 
     html! {
+        <>
         <nav class="tree-panel">
             <div class="tree-header">
                 <div class="server-select-wrap">
@@ -200,18 +197,51 @@ pub fn side(props: &SideProps) -> Html {
                     if tree_state.root.children.is_empty() {
                         html! { <div class="tree-empty">{ "Add a tag to get started." }</div> }
                     } else {
-                        html! { <TreeDirectory node={tree_state.root.clone()} path={vec![]} /> }
+                        html! { <crate::components::tree::directory::TreeDirectory node={tree_state.root.clone()} path={vec![]} /> }
                     }
                 }
             </div>
         </nav>
-    }
-}
+        {
+            if let Some(index) = (*pending_remove_server).clone() {
+                let label = tree_state.servers.get(index).cloned().unwrap_or_default();
+                let on_confirm = {
+                    let tree_state = tree_state.clone();
+                    let pending_remove_server = pending_remove_server.clone();
+                    Callback::from(move |_| {
+                        tree_state.dispatch(TreeAction::RemoveServer { index });
+                        pending_remove_server.set(None);
+                    })
+                };
+                let on_cancel = {
+                    let pending_remove_server = pending_remove_server.clone();
+                    Callback::from(move |_| {
+                        pending_remove_server.set(None);
+                    })
+                };
+                let on_confirm_click =
+                    Callback::from(move |_event: MouseEvent| on_confirm.emit(()));
+                let on_cancel_click =
+                    Callback::from(move |_event: MouseEvent| on_cancel.emit(()));
 
-fn confirm(message: &str) -> bool {
-    web_sys::window()
-        .and_then(|window| window.confirm_with_message(message).ok())
-        .unwrap_or(false)
+                html! {
+                    <div class="modal-backdrop">
+                        <div class="modal">
+                            <h2 class="modal-title">{ "Remove server" }</h2>
+                            <p class="modal-text">{ format!("Remove \"{}\"?", label) }</p>
+                            <div class="modal-actions">
+                                <button class="button secondary" onclick={on_cancel_click}>{ "Cancel" }</button>
+                                <button class="button danger" onclick={on_confirm_click}>{ "Remove" }</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            } else {
+                html! {}
+            }
+        }
+        </>
+    }
 }
 
 fn select_value(event: &Event) -> String {

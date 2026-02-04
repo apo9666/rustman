@@ -17,7 +17,7 @@ pub fn build_tree_from_openapi(text: &str) -> Result<(TreeNode, Vec<String>), St
         .unwrap_or("OpenAPI")
         .to_string();
 
-    let mut servers = json
+    let servers = json
         .get("servers")
         .and_then(|value| value.as_array())
         .cloned()

@@ -3,6 +3,7 @@ use yew::prelude::*;
 use crate::components::request::body::RequestBody;
 use crate::components::request::header_table::HeaderTable;
 use crate::components::request::param_table::ParamTable;
+use crate::components::request::path_table::PathTable;
 use crate::state::TabContent;
 
 #[derive(Properties, Clone, PartialEq)]
@@ -25,6 +26,12 @@ pub fn request_content(props: &RequestContentProps) -> Html {
         <div class="request">
             <div class="subtabs">
                 <button
+                    class={classes!("subtab", if *active == "path" { "active" } else { "" })}
+                    onclick={on_select("path", active.clone())}
+                >
+                    { "Path" }
+                </button>
+                <button
                     class={classes!("subtab", if *active == "params" { "active" } else { "" })}
                     onclick={on_select("params", active.clone())}
                 >
@@ -46,6 +53,13 @@ pub fn request_content(props: &RequestContentProps) -> Html {
 
             {
                 match active.as_str() {
+                    "path" => html! {
+                        <PathTable
+                            tab_index={tab_index}
+                            url={content.url.clone()}
+                            path_params={content.path_params.clone()}
+                        />
+                    },
                     "headers" => html! { <HeaderTable tab_index={tab_index} headers={content.headers.clone()} /> },
                     "body" => html! {
                         <RequestBody

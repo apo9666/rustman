@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashSet};
 use serde_json::{json, Map, Value};
 use url::Url;
 
-use crate::state::{MethodEnum, TabContent, TreeNode};
+use crate::state::{MethodEnum, Param, TabContent, TreeNode};
 
 pub fn build_tree_from_openapi(text: &str) -> Result<(TreeNode, Vec<String>), String> {
     let yaml: serde_yaml::Value =
@@ -109,10 +109,12 @@ pub fn build_openapi_from_tree(root: &TreeNode, servers: &[String]) -> Result<St
 fn convert_content(path_key: &str, method: MethodEnum, method_value: &Value) -> TabContent {
     let path = normalize_path(path_key);
     let body = extract_body(method_value);
+    let path_params = extract_path_params(path_key);
     TabContent {
         url: path,
         method,
         body,
+        path_params,
         ..TabContent::default()
     }
 }
@@ -128,6 +130,38 @@ fn extract_body(method_value: &Value) -> String {
     };
 
     serde_json::to_string_pretty(example).unwrap_or_default()
+}
+
+fn extract_path_params(path: &str) -> Vec<Param> {
+    let mut params = Vec::new();
+    let mut chars = path.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            let mut key = String::new();
+            while let Some(next) = chars.next() {
+                if next == '}' {
+                    break;
+                }
+                key.push(next);
+            }
+            let trimmed = key.trim();
+            if !trimmed.is_empty() {
+                params.push(Param {
+                    enable: true,
+                    key: trimmed.to_string(),
+                    value: String::new(),
+                });
+            }
+        }
+    }
+    if params.is_empty() {
+        params.push(Param {
+            enable: true,
+            key: String::new(),
+            value: String::new(),
+        });
+    }
+    params
 }
 
 fn build_openapi_from_tree_nodes(root: &TreeNode, servers: &[String]) -> Result<String, String> {
@@ -229,6 +263,21 @@ fn build_parameters(content: &TabContent) -> Vec<Value> {
     let mut parameters = Vec::new();
     let mut seen = HashSet::new();
 
+    for param in content.path_params.iter().filter(|param| param.enable) {
+        let key = param.key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        push_parameter(
+            &mut parameters,
+            &mut seen,
+            "path",
+            key,
+            true,
+            Some(param.value.trim()),
+        );
+    }
+
     let has_explicit_params = content
         .params
         .iter()
@@ -245,6 +294,7 @@ fn build_parameters(content: &TabContent) -> Vec<Value> {
                 &mut seen,
                 "query",
                 key,
+                false,
                 Some(param.value.trim()),
             );
         }
@@ -255,6 +305,7 @@ fn build_parameters(content: &TabContent) -> Vec<Value> {
                 &mut seen,
                 "query",
                 &key,
+                false,
                 Some(&value),
             );
         }
@@ -273,6 +324,7 @@ fn build_parameters(content: &TabContent) -> Vec<Value> {
             &mut seen,
             "header",
             key,
+            false,
             Some(header.value.trim()),
         );
     }
@@ -285,6 +337,7 @@ fn push_parameter(
     seen: &mut HashSet<(String, String)>,
     location: &str,
     name: &str,
+    required: bool,
     example: Option<&str>,
 ) {
     let key = (location.to_string(), name.to_string());
@@ -296,7 +349,7 @@ fn push_parameter(
     let mut param = Map::new();
     param.insert("name".to_string(), Value::String(name.to_string()));
     param.insert("in".to_string(), Value::String(location.to_string()));
-    param.insert("required".to_string(), Value::Bool(false));
+    param.insert("required".to_string(), Value::Bool(required));
     param.insert(
         "schema".to_string(),
         json!({

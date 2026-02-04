@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use yew::prelude::*;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, serde::Deserialize)]
 pub struct Response {
     pub url: String,
     pub status: u16,
@@ -136,11 +136,18 @@ impl Default for TabContent {
             method: MethodEnum::Get,
             url: String::new(),
             body: String::new(),
-            headers: vec![Header {
-                enable: true,
-                key: String::new(),
-                value: String::new(),
-            }],
+            headers: vec![
+                Header {
+                    enable: true,
+                    key: "Accept".to_string(),
+                    value: "*/*".to_string(),
+                },
+                Header {
+                    enable: true,
+                    key: "Content-Type".to_string(),
+                    value: "application/json".to_string(),
+                },
+            ],
             params: vec![Param {
                 enable: true,
                 key: String::new(),

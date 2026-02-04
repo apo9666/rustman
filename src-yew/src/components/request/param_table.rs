@@ -2,7 +2,7 @@ use wasm_bindgen::JsCast;
 use yew::prelude::*;
 
 use crate::state::{Param, TabAction, TabState};
-use crate::utils::{ensure_trailing_param, url_from_params};
+use crate::utils::url_from_params;
 
 #[derive(Properties, Clone, PartialEq)]
 pub struct ParamTableProps {
@@ -24,7 +24,6 @@ pub fn param_table(props: &ParamTableProps) -> Html {
     let update_params = {
         let tab_state = tab_state.clone();
         move |mut next_params: Vec<Param>| {
-            ensure_trailing_param(&mut next_params);
             let next_url = url_from_params(&url, &next_params);
             tab_state.dispatch(TabAction::UpdateUrlAndParams {
                 index,
@@ -74,10 +73,27 @@ pub fn param_table(props: &ParamTableProps) -> Html {
         let update_params = update_params.clone();
         let params = params.clone();
         Callback::from(move |row_index: usize| {
+            if params.len() <= 1 {
+                return;
+            }
             let mut next_params = params.clone();
             if row_index < next_params.len() {
                 next_params.remove(row_index);
             }
+            update_params(next_params);
+        })
+    };
+
+    let on_add = {
+        let update_params = update_params.clone();
+        let params = params.clone();
+        Callback::from(move |_| {
+            let mut next_params = params.clone();
+            next_params.push(Param {
+                enable: true,
+                key: String::new(),
+                value: String::new(),
+            });
             update_params(next_params);
         })
     };
@@ -96,7 +112,6 @@ pub fn param_table(props: &ParamTableProps) -> Html {
                 </thead>
                 <tbody>
                     { for params.iter().enumerate().map(|(row_index, param)| {
-                        let is_last = row_index + 1 == params.len();
                         let on_toggle = {
                             let on_toggle = on_toggle.clone();
                             Callback::from(move |event: Event| {
@@ -135,7 +150,7 @@ pub fn param_table(props: &ParamTableProps) -> Html {
                                 </td>
                                 <td>
                                     {
-                                        if is_last {
+                                        if params.len() <= 1 {
                                             html! {}
                                         } else {
                                             html! { <button class="button ghost" onclick={on_remove_click}>{ "X" }</button> }
@@ -146,6 +161,13 @@ pub fn param_table(props: &ParamTableProps) -> Html {
                         }
                     }) }
                 </tbody>
+                <tfoot>
+                    <tr>
+                        <td class="table-add-cell" colspan="4">
+                            <button class="button ghost table-add" onclick={on_add}>{ "+" }</button>
+                        </td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
     }

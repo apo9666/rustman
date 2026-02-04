@@ -12,11 +12,13 @@ pub fn params_from_url(url: &str) -> Option<Vec<Param>> {
             value: value.to_string(),
         });
     }
-    params.push(Param {
-        enable: true,
-        key: String::new(),
-        value: String::new(),
-    });
+    if params.is_empty() {
+        params.push(Param {
+            enable: true,
+            key: String::new(),
+            value: String::new(),
+        });
+    }
     Some(params)
 }
 
@@ -37,18 +39,5 @@ pub fn url_from_params(url: &str, params: &[Param]) -> String {
         base.to_string()
     } else {
         format!("{}?{}", base, query)
-    }
-}
-
-pub fn ensure_trailing_param(params: &mut Vec<Param>) {
-    let needs_trailing = params.last().map(|param| {
-        !param.key.trim().is_empty() || !param.value.trim().is_empty() || !param.enable
-    });
-    if needs_trailing.unwrap_or(true) {
-        params.push(Param {
-            enable: true,
-            key: String::new(),
-            value: String::new(),
-        });
     }
 }

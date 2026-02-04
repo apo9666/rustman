@@ -40,15 +40,16 @@ pub fn request_body(props: &RequestBodyProps) -> Html {
     };
 
     html! {
-        <div class="table-wrap">
-            <h2 class="table-title">{ "Body" }</h2>
-            <div class="form-row">
-                <button class="button secondary" onclick={on_format}>{ "Format" }</button>
+            <div class="table-wrap body-wrap">
+                <div class="request-title">
+                    <h1>{ "Body" }</h1>
+                    <button class="button secondary" onclick={on_format}>{ "Format" }</button>
+                </div>
+                <hr class="section-divider" />
+                <div class="body-editor-wrap">
+                    <textarea class="editor body-editor" value={props.body.clone()} oninput={on_change} />
+                </div>
             </div>
-            <div class="form-row">
-                <textarea class="editor" value={props.body.clone()} oninput={on_change} />
-            </div>
-        </div>
     }
 }
 

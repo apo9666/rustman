@@ -158,12 +158,13 @@ async fn perform_request(content: &TabContent, server: Option<&str>) -> Result<R
         },
     };
 
-    let payload = build_request_payload(&request).map_err(|err| format!("{:?}", err))?;
+    let payload = build_request_payload(&request)
+        .map_err(|err| format_request_error(tauri_api::js_error_to_string(&err)))?;
     let value = tauri_api::invoke("send_request", payload)
         .await
-        .map_err(|err| format!("{:?}", err))?;
+        .map_err(|err| format_request_error(tauri_api::js_error_to_string(&err)))?;
     let response: Response =
-        serde_wasm_bindgen::from_value(value).map_err(|err| err.to_string())?;
+        serde_wasm_bindgen::from_value(value).map_err(|err| format!("Resposta inválida: {err}"))?;
     Ok(response)
 }
 
@@ -274,6 +275,27 @@ fn build_request_payload(request: &TauriRequest) -> Result<JsValue, JsValue> {
     )?;
 
     Ok(payload.into())
+}
+
+fn format_request_error(message: String) -> String {
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        return "Erro desconhecido.".to_string();
+    }
+    let lower = trimmed.to_lowercase();
+    if lower.contains("typeerror: load failed")
+        || lower.contains("failed to fetch")
+        || lower.contains("networkerror")
+    {
+        return "Falha ao conectar ao servidor.".to_string();
+    }
+    if lower.contains("invalid args `request`")
+        || lower.contains("missing required key request")
+        || lower.contains("command send_request")
+    {
+        return "Falha ao enviar a requisição.".to_string();
+    }
+    trimmed.to_string()
 }
 
 fn build_request_url(content: &TabContent, server: Option<&str>) -> Result<String, String> {

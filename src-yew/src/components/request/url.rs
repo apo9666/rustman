@@ -32,6 +32,7 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
     let Some(tree_state) = tree_state else {
         return html! {};
     };
+    let is_sending = use_state(|| false);
     let index = props.tab_index;
     let content = props.content.clone();
     let selected_server = tree_state
@@ -93,12 +94,19 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
     let on_submit = {
         let tab_state = tab_state.clone();
         let selected_server = selected_server.clone();
+        let is_sending = is_sending.clone();
         Callback::from(move |event: SubmitEvent| {
             event.prevent_default();
+            if *is_sending {
+                return;
+            }
+            is_sending.set(true);
             let tab_state = tab_state.clone();
             let selected_server = selected_server.clone();
+            let is_sending = is_sending.clone();
             spawn_local(async move {
                 let Some(tab) = tab_state.tabs.get(index).cloned() else {
+                    is_sending.set(false);
                     return;
                 };
                 let response =
@@ -112,6 +120,7 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
                     },
                 };
                 tab_state.dispatch(TabAction::SetResponse { index, response });
+                is_sending.set(false);
             });
         })
     };
@@ -139,7 +148,14 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
                     oninput={on_url_change}
                 />
             </div>
-            <button type="submit" class="button">{ "Send" }</button>
+            <button
+                type="submit"
+                class="button"
+                disabled={*is_sending}
+                aria-busy={if *is_sending { Some(String::from("true")) } else { None }}
+            >
+                { if *is_sending { "Sending..." } else { "Send" } }
+            </button>
         </form>
     }
 }

@@ -16,9 +16,9 @@
     "fs:allow-exists",
     "fs:allow-write-file",
     "fs:allow-write-text-file",
-    "fs:allow-desktop-read",
-    "fs:allow-desktop-write",
-    "fs:allow-download-read",
-    "fs:allow-download-write"
+    "fs:allow-home-read",
+    "fs:allow-home-read-recursive",
+    "fs:allow-home-write",
+    "fs:allow-home-write-recursive"
   ]
 }

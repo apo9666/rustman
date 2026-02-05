@@ -32,6 +32,7 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
     let Some(tree_state) = tree_state else {
         return html! {};
     };
+    let is_sending = use_state(|| false);
     let index = props.tab_index;
     let content = props.content.clone();
     let selected_server = tree_state
@@ -93,12 +94,19 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
     let on_submit = {
         let tab_state = tab_state.clone();
         let selected_server = selected_server.clone();
+        let is_sending = is_sending.clone();
         Callback::from(move |event: SubmitEvent| {
             event.prevent_default();
+            if *is_sending {
+                return;
+            }
+            is_sending.set(true);
             let tab_state = tab_state.clone();
             let selected_server = selected_server.clone();
+            let is_sending = is_sending.clone();
             spawn_local(async move {
                 let Some(tab) = tab_state.tabs.get(index).cloned() else {
+                    is_sending.set(false);
                     return;
                 };
                 let response =
@@ -112,6 +120,7 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
                     },
                 };
                 tab_state.dispatch(TabAction::SetResponse { index, response });
+                is_sending.set(false);
             });
         })
     };
@@ -139,7 +148,14 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
                     oninput={on_url_change}
                 />
             </div>
-            <button type="submit" class="button">{ "Send" }</button>
+            <button
+                type="submit"
+                class="button"
+                disabled={*is_sending}
+                aria-busy={if *is_sending { Some(String::from("true")) } else { None }}
+            >
+                { if *is_sending { "Sending..." } else { "Send" } }
+            </button>
         </form>
     }
 }
@@ -158,12 +174,13 @@ async fn perform_request(content: &TabContent, server: Option<&str>) -> Result<R
         },
     };
 
-    let payload = build_request_payload(&request).map_err(|err| format!("{:?}", err))?;
+    let payload = build_request_payload(&request)
+        .map_err(|err| format_request_error(tauri_api::js_error_to_string(&err)))?;
     let value = tauri_api::invoke("send_request", payload)
         .await
-        .map_err(|err| format!("{:?}", err))?;
+        .map_err(|err| format_request_error(tauri_api::js_error_to_string(&err)))?;
     let response: Response =
-        serde_wasm_bindgen::from_value(value).map_err(|err| err.to_string())?;
+        serde_wasm_bindgen::from_value(value).map_err(|err| format!("Resposta inválida: {err}"))?;
     Ok(response)
 }
 
@@ -274,6 +291,27 @@ fn build_request_payload(request: &TauriRequest) -> Result<JsValue, JsValue> {
     )?;
 
     Ok(payload.into())
+}
+
+fn format_request_error(message: String) -> String {
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        return "Erro desconhecido.".to_string();
+    }
+    let lower = trimmed.to_lowercase();
+    if lower.contains("typeerror: load failed")
+        || lower.contains("failed to fetch")
+        || lower.contains("networkerror")
+    {
+        return "Falha ao conectar ao servidor.".to_string();
+    }
+    if lower.contains("invalid args `request`")
+        || lower.contains("missing required key request")
+        || lower.contains("command send_request")
+    {
+        return "Falha ao enviar a requisição.".to_string();
+    }
+    trimmed.to_string()
 }
 
 fn build_request_url(content: &TabContent, server: Option<&str>) -> Result<String, String> {

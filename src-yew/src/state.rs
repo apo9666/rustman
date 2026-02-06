@@ -3,6 +3,14 @@ use std::rc::Rc;
 use yew::prelude::*;
 use url::Url;
 
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct RequestDebugInfo {
+    pub method: String,
+    pub url: String,
+    pub headers: HashMap<String, String>,
+    pub body: Option<String>,
+}
+
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
 pub struct Response {
     pub url: String,
@@ -13,6 +21,10 @@ pub struct Response {
     pub data: String,
     #[serde(default)]
     pub formatted: bool,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub request: Option<RequestDebugInfo>,
 }
 
 impl Default for Response {
@@ -25,6 +37,8 @@ impl Default for Response {
             raw_headers: HashMap::new(),
             data: String::new(),
             formatted: false,
+            duration_ms: None,
+            request: None,
         }
     }
 }
@@ -39,6 +53,118 @@ pub enum MethodEnum {
     Options,
     Head,
     Trace,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct ServerEntry {
+    pub url: String,
+    pub auth: ServerAuth,
+}
+
+impl ServerEntry {
+    pub fn new(url: String) -> Self {
+        Self {
+            url,
+            auth: ServerAuth::None,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum ApiKeyLocation {
+    Header,
+    Query,
+    Cookie,
+}
+
+impl ApiKeyLocation {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ApiKeyLocation::Header => "header",
+            ApiKeyLocation::Query => "query",
+            ApiKeyLocation::Cookie => "cookie",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "header" => Some(ApiKeyLocation::Header),
+            "query" => Some(ApiKeyLocation::Query),
+            "cookie" => Some(ApiKeyLocation::Cookie),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum OAuth2Flow {
+    AuthorizationCode,
+    Implicit,
+    Password,
+    ClientCredentials,
+}
+
+impl OAuth2Flow {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OAuth2Flow::AuthorizationCode => "authorizationCode",
+            OAuth2Flow::Implicit => "implicit",
+            OAuth2Flow::Password => "password",
+            OAuth2Flow::ClientCredentials => "clientCredentials",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "authorizationCode" => Some(OAuth2Flow::AuthorizationCode),
+            "implicit" => Some(OAuth2Flow::Implicit),
+            "password" => Some(OAuth2Flow::Password),
+            "clientCredentials" => Some(OAuth2Flow::ClientCredentials),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct OAuthScope {
+    pub name: String,
+    pub description: String,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum ServerAuth {
+    None,
+    ApiKey {
+        name: String,
+        location: ApiKeyLocation,
+        value: String,
+    },
+    HttpBasic {
+        username: String,
+        password: String,
+    },
+    HttpBearer {
+        token: String,
+        bearer_format: String,
+    },
+    OAuth2 {
+        flow: OAuth2Flow,
+        auth_url: String,
+        token_url: String,
+        refresh_url: String,
+        scopes: Vec<OAuthScope>,
+        access_token: String,
+    },
+    OpenIdConnect {
+        url: String,
+        access_token: String,
+    },
+}
+
+impl Default for ServerAuth {
+    fn default() -> Self {
+        ServerAuth::None
+    }
 }
 
 impl MethodEnum {
@@ -347,7 +473,7 @@ pub struct TreeNode {
 #[derive(Clone, PartialEq, Debug)]
 pub struct TreeState {
     pub root: TreeNode,
-    pub servers: Vec<String>,
+    pub servers: Vec<ServerEntry>,
     pub selected_path: Option<Vec<usize>>,
     pub pending_delete: Option<PendingDelete>,
     pub pending_move: Option<PendingMove>,
@@ -386,10 +512,11 @@ pub struct PendingMove {
 
 pub enum TreeAction {
     SetExpanded { path: Vec<usize>, open: bool },
-    AddServer { label: String },
+    AddServer { url: String },
     RemoveServer { index: usize },
     SetSelectedServer { index: usize },
-    SetTree { root: TreeNode, servers: Vec<String> },
+    UpdateServerAuth { index: usize, auth: ServerAuth },
+    SetTree { root: TreeNode, servers: Vec<ServerEntry> },
     AddChild { path: Vec<usize>, node: TreeNode },
     ReplaceNode { path: Vec<usize>, node: TreeNode },
     Rename { path: Vec<usize>, label: String },
@@ -411,8 +538,8 @@ impl Reducible for TreeState {
             TreeAction::SetExpanded { path, open } => {
                 set_expanded(&mut state.root, &path, open);
             }
-            TreeAction::AddServer { label } => {
-                state.servers.push(label);
+            TreeAction::AddServer { url } => {
+                state.servers.push(ServerEntry::new(url));
                 if state.selected_server.is_none() {
                     state.selected_server = Some(state.servers.len().saturating_sub(1));
                 }
@@ -429,6 +556,11 @@ impl Reducible for TreeState {
             TreeAction::SetSelectedServer { index } => {
                 if index < state.servers.len() {
                     state.selected_server = Some(index);
+                }
+            }
+            TreeAction::UpdateServerAuth { index, auth } => {
+                if let Some(server) = state.servers.get_mut(index) {
+                    server.auth = auth;
                 }
             }
             TreeAction::SetTree { root, servers } => {

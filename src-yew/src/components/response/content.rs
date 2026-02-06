@@ -259,14 +259,18 @@ pub fn response_content(props: &ResponseContentProps) -> Html {
                             <div class="modal debug-modal">
                                 <div class="debug-layout" ref={debug_ref}>
                                     <div class="debug-top" style={format!("height: {}px;", *split_height)}>
-                                        <div class="debug-row">
-                                            <div class="debug-panel" style={format!("flex: 1 1 {}px;", *split_width)}>
+                                        <div class="debug-grid" style={format!("--debug-left-width: {}px;", *split_width)}>
+                                            <div class="debug-title debug-title-left">
                                                 <h2 class="modal-title">{ "Request" }</h2>
+                                            </div>
+                                            <div class="debug-title debug-title-right">
+                                                <h2 class="modal-title">{ "JWT" }</h2>
+                                            </div>
+                                            <div class="debug-panel debug-panel-left">
                                                 <pre class="debug-text">{ debug_request.clone() }</pre>
                                             </div>
                                             <div class="debug-resize-vert" onmousedown={on_drag_vert_start}></div>
-                                            <div class="debug-panel debug-panel-flex">
-                                                <h2 class="modal-title">{ "JWT" }</h2>
+                                            <div class="debug-panel debug-panel-right">
                                                 <pre class="debug-text">{ debug_jwt.clone() }</pre>
                                             </div>
                                         </div>

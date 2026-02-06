@@ -223,10 +223,13 @@ body,
   min-height: 60vh;
 }
 
-.debug-row {
-  display: flex;
+.debug-grid {
+  display: grid;
+  grid-template-columns: var(--debug-left-width, 360px) 12px 1fr;
+  grid-template-rows: auto 1fr;
+  column-gap: 0;
+  row-gap: 8px;
   align-items: stretch;
-  gap: 0;
   height: 100%;
 }
 
@@ -244,41 +247,97 @@ body,
   flex: 1;
 }
 
+.debug-title {
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+}
+
+.debug-title-left {
+  grid-column: 1;
+  grid-row: 1;
+  padding-left: 0;
+}
+
+.debug-title-right {
+  grid-column: 3;
+  grid-row: 1;
+}
+
 .debug-panel {
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  padding: 0 6px;
 }
 
-.debug-panel-flex {
-  flex: 0 0 260px;
+.debug-panel-left {
+  grid-column: 1;
+  grid-row: 2;
+  padding-left: 0;
+}
+
+.debug-panel-right {
+  grid-column: 3;
+  grid-row: 2;
   min-width: 200px;
-  max-width: 420px;
 }
 
 .debug-resize-vert {
-  width: 6px;
+  width: 12px;
+  flex: 0 0 12px;
   cursor: col-resize;
-  background: #27272a;
-  border-left: 1px solid #3f3f46;
-  border-right: 1px solid #3f3f46;
+  position: relative;
+  background: transparent;
+  z-index: 2;
+  user-select: none;
+  touch-action: none;
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.debug-resize-vert::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: #3f3f46;
+  border-radius: 2px;
 }
 
 .debug-resize-vert:hover {
-  background: #3f3f46;
+  background: rgba(63, 63, 70, 0.25);
 }
 
 .debug-resize-horiz {
-  height: 6px;
+  height: 12px;
+  flex: 0 0 12px;
   cursor: row-resize;
-  background: #27272a;
-  border-top: 1px solid #3f3f46;
-  border-bottom: 1px solid #3f3f46;
+  position: relative;
+  background: transparent;
+  margin: 4px 0;
+  user-select: none;
+  touch-action: none;
+}
+
+.debug-resize-horiz::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: #3f3f46;
+  border-radius: 2px;
 }
 
 .debug-resize-horiz:hover {
-  background: #3f3f46;
+  background: rgba(63, 63, 70, 0.25);
 }
 
 .modal-actions {

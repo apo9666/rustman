@@ -168,8 +168,8 @@ pub fn section(props: &SectionProps) -> Html {
                             <div class="resize-handle" onmousedown={on_resize_start}></div>
                             <ResponseContent
                                 tab_index={active}
-                                data={tab.content.response.data.clone()}
-                                formatted={tab.content.response.formatted}
+                                response={tab.content.response.clone()}
+                                request={tab.content.clone()}
                             />
                         </div>
                     }

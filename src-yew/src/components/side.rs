@@ -602,7 +602,7 @@ impl Default for AuthForm {
             basic_username: String::new(),
             basic_password: String::new(),
             bearer_token: String::new(),
-            bearer_format: String::new(),
+            bearer_format: "Bearer".to_string(),
             oauth_flow: "authorizationCode".to_string(),
             oauth_auth_url: String::new(),
             oauth_token_url: String::new(),
@@ -642,7 +642,11 @@ impl AuthForm {
             } => Self {
                 kind: "httpBearer".to_string(),
                 bearer_token: token.clone(),
-                bearer_format: bearer_format.clone(),
+                bearer_format: if bearer_format.trim().is_empty() {
+                    "Bearer".to_string()
+                } else {
+                    bearer_format.clone()
+                },
                 ..Self::default()
             },
             ServerAuth::OAuth2 {
@@ -685,7 +689,11 @@ impl AuthForm {
             },
             "httpBearer" => ServerAuth::HttpBearer {
                 token: self.bearer_token.clone(),
-                bearer_format: self.bearer_format.clone(),
+                bearer_format: if self.bearer_format.trim().is_empty() {
+                    "Bearer".to_string()
+                } else {
+                    self.bearer_format.clone()
+                },
             },
             "oauth2" => ServerAuth::OAuth2 {
                 flow: OAuth2Flow::from_str(&self.oauth_flow)

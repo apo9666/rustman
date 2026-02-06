@@ -3,6 +3,14 @@ use std::rc::Rc;
 use yew::prelude::*;
 use url::Url;
 
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct RequestDebugInfo {
+    pub method: String,
+    pub url: String,
+    pub headers: HashMap<String, String>,
+    pub body: Option<String>,
+}
+
 #[derive(Clone, PartialEq, Debug, serde::Deserialize)]
 pub struct Response {
     pub url: String,
@@ -13,6 +21,10 @@ pub struct Response {
     pub data: String,
     #[serde(default)]
     pub formatted: bool,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub request: Option<RequestDebugInfo>,
 }
 
 impl Default for Response {
@@ -25,6 +37,8 @@ impl Default for Response {
             raw_headers: HashMap::new(),
             data: String::new(),
             formatted: false,
+            duration_ms: None,
+            request: None,
         }
     }
 }

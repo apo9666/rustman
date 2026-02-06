@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use js_sys::{Object, Reflect};
+use js_sys::{Date, Object, Reflect};
 use serde::Serialize;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::JsCast;
@@ -13,8 +13,8 @@ use yew::prelude::*;
 use url::Url;
 
 use crate::state::{
-    ApiKeyLocation, Header, MethodEnum, Param, Response, ServerAuth, ServerEntry, TabAction,
-    TabContent, TabState, TreeState,
+    ApiKeyLocation, Header, MethodEnum, Param, RequestDebugInfo, Response, ServerAuth,
+    ServerEntry, TabAction, TabContent, TabState, TreeState,
 };
 use crate::tauri_api;
 use crate::utils::{params_from_url, path_params_from_url};
@@ -112,16 +112,29 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
                     is_sending.set(false);
                     return;
                 };
+                let started_at = Date::now();
                 let response =
                     match perform_request(&tab.content, selected_server.as_ref()).await {
-                        Ok(response) => response,
-                        Err(error) => Response {
-                            data: error,
-                        ok: false,
-                        status: 0,
-                        ..Response::default()
-                    },
-                };
+                        Ok(mut response) => {
+                            let request_info =
+                                build_request_debug(&tab.content, selected_server.as_ref()).ok();
+                            response.request = request_info;
+                            response.duration_ms = Some(duration_ms(started_at));
+                            response
+                        }
+                        Err(error) => {
+                            let request_info =
+                                build_request_debug(&tab.content, selected_server.as_ref()).ok();
+                            Response {
+                                data: error,
+                                ok: false,
+                                status: 0,
+                                duration_ms: Some(duration_ms(started_at)),
+                                request: request_info,
+                                ..Response::default()
+                            }
+                        }
+                    };
                 tab_state.dispatch(TabAction::SetResponse { index, response });
                 is_sending.set(false);
             });
@@ -193,6 +206,61 @@ async fn perform_request(
     let response: Response =
         serde_wasm_bindgen::from_value(value).map_err(|err| format!("Resposta inválida: {err}"))?;
     Ok(response)
+}
+
+pub(crate) fn build_request_debug(
+    content: &TabContent,
+    server: Option<&ServerEntry>,
+) -> Result<RequestDebugInfo, String> {
+    let url = build_request_url(content, server)?;
+    let mut headers = build_headers(&content.headers, content.method, &content.body);
+    let url = if let Some(server) = server {
+        apply_auth(&url, &mut headers, &server.auth)?
+    } else {
+        url
+    };
+
+    Ok(RequestDebugInfo {
+        method: content.method.as_str().to_string(),
+        url,
+        headers,
+        body: if content.body.trim().is_empty() {
+            None
+        } else {
+            Some(content.body.clone())
+        },
+    })
+}
+
+pub(crate) fn authorization_header_value(auth: &ServerAuth) -> Option<String> {
+    match auth {
+        ServerAuth::HttpBasic { username, password } => {
+            let token = STANDARD.encode(format!("{username}:{password}"));
+            Some(format!("Basic {token}"))
+        }
+        ServerAuth::HttpBearer { token, .. } => {
+            if token.trim().is_empty() {
+                None
+            } else {
+                Some(format!("Bearer {token}"))
+            }
+        }
+        ServerAuth::OAuth2 { access_token, .. } => {
+            if access_token.trim().is_empty() {
+                None
+            } else {
+                Some(format!("Bearer {access_token}"))
+            }
+        }
+        ServerAuth::OpenIdConnect { access_token, .. } => {
+            if access_token.trim().is_empty() {
+                None
+            } else {
+                Some(format!("Bearer {access_token}"))
+            }
+        }
+        _ => None,
+    }
 }
 
 fn build_headers(headers: &[Header], method: MethodEnum, body: &str) -> HashMap<String, String> {
@@ -323,6 +391,15 @@ fn format_request_error(message: String) -> String {
         return "Falha ao enviar a requisição.".to_string();
     }
     trimmed.to_string()
+}
+
+fn duration_ms(started_at: f64) -> u64 {
+    let elapsed = Date::now() - started_at;
+    if elapsed.is_finite() && elapsed > 0.0 {
+        elapsed.round() as u64
+    } else {
+        0
+    }
 }
 
 fn build_request_url(content: &TabContent, server: Option<&ServerEntry>) -> Result<String, String> {

@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use js_sys::{Object, Reflect};
 use serde::Serialize;
 use wasm_bindgen::JsValue;
@@ -11,7 +13,8 @@ use yew::prelude::*;
 use url::Url;
 
 use crate::state::{
-    Header, MethodEnum, Param, Response, TabAction, TabContent, TabState, TreeState,
+    ApiKeyLocation, Header, MethodEnum, Param, Response, ServerAuth, ServerEntry, TabAction,
+    TabContent, TabState, TreeState,
 };
 use crate::tauri_api;
 use crate::utils::{params_from_url, path_params_from_url};
@@ -110,7 +113,7 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
                     return;
                 };
                 let response =
-                    match perform_request(&tab.content, selected_server.as_deref()).await {
+                    match perform_request(&tab.content, selected_server.as_ref()).await {
                         Ok(response) => response,
                         Err(error) => Response {
                             data: error,
@@ -160,9 +163,17 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
     }
 }
 
-async fn perform_request(content: &TabContent, server: Option<&str>) -> Result<Response, String> {
+async fn perform_request(
+    content: &TabContent,
+    server: Option<&ServerEntry>,
+) -> Result<Response, String> {
     let url = build_request_url(content, server)?;
-    let headers = build_headers(&content.headers, content.method, &content.body);
+    let mut headers = build_headers(&content.headers, content.method, &content.body);
+    let url = if let Some(server) = server {
+        apply_auth(&url, &mut headers, &server.auth)?
+    } else {
+        url
+    };
     let request = TauriRequest {
         method: content.method.as_str().to_string(),
         url,
@@ -314,7 +325,7 @@ fn format_request_error(message: String) -> String {
     trimmed.to_string()
 }
 
-fn build_request_url(content: &TabContent, server: Option<&str>) -> Result<String, String> {
+fn build_request_url(content: &TabContent, server: Option<&ServerEntry>) -> Result<String, String> {
     let path = normalize_request_path(&content.url);
     let path_with_values = apply_path_params(&path, &content.path_params);
     if path.is_empty() {
@@ -332,7 +343,7 @@ fn build_request_url(content: &TabContent, server: Option<&str>) -> Result<Strin
     let Some(server) = server else {
         return Err("Selecione um server.".to_string());
     };
-    let base = server.trim_end_matches('/');
+    let base = server.url.trim_end_matches('/');
     let path = if path.starts_with('/') {
         path_with_query
     } else {
@@ -435,4 +446,92 @@ fn apply_path_params(base: &str, params: &[Param]) -> String {
         result.push(ch);
     }
     result
+}
+
+fn apply_auth(
+    url: &str,
+    headers: &mut HashMap<String, String>,
+    auth: &ServerAuth,
+) -> Result<String, String> {
+    match auth {
+        ServerAuth::None => Ok(url.to_string()),
+        ServerAuth::ApiKey {
+            name,
+            location,
+            value,
+        } => {
+            if name.trim().is_empty() || value.trim().is_empty() {
+                return Ok(url.to_string());
+            }
+            match location {
+                ApiKeyLocation::Header => {
+                    set_header(headers, name, value.clone());
+                    Ok(url.to_string())
+                }
+                ApiKeyLocation::Query => append_query_param(url, name, value),
+                ApiKeyLocation::Cookie => {
+                    append_cookie(headers, name, value);
+                    Ok(url.to_string())
+                }
+            }
+        }
+        ServerAuth::HttpBasic { username, password } => {
+            let token = STANDARD.encode(format!("{username}:{password}"));
+            set_header(headers, "Authorization", format!("Basic {token}"));
+            Ok(url.to_string())
+        }
+        ServerAuth::HttpBearer { token, .. } => {
+            if !token.trim().is_empty() {
+                set_header(headers, "Authorization", format!("Bearer {token}"));
+            }
+            Ok(url.to_string())
+        }
+        ServerAuth::OAuth2 { access_token, .. } => {
+            if !access_token.trim().is_empty() {
+                set_header(headers, "Authorization", format!("Bearer {access_token}"));
+            }
+            Ok(url.to_string())
+        }
+        ServerAuth::OpenIdConnect { access_token, .. } => {
+            if !access_token.trim().is_empty() {
+                set_header(headers, "Authorization", format!("Bearer {access_token}"));
+            }
+            Ok(url.to_string())
+        }
+    }
+}
+
+fn append_query_param(url: &str, name: &str, value: &str) -> Result<String, String> {
+    let mut parsed = Url::parse(url).map_err(|_| "URL inválida.".to_string())?;
+    parsed.query_pairs_mut().append_pair(name, value);
+    Ok(parsed.to_string())
+}
+
+fn set_header(headers: &mut HashMap<String, String>, key: &str, value: String) {
+    if let Some(existing) = headers
+        .keys()
+        .find(|existing| existing.eq_ignore_ascii_case(key))
+        .cloned()
+    {
+        headers.insert(existing, value);
+    } else {
+        headers.insert(key.to_string(), value);
+    }
+}
+
+fn append_cookie(headers: &mut HashMap<String, String>, name: &str, value: &str) {
+    let pair = format!("{name}={value}");
+    if let Some(existing_key) = headers
+        .keys()
+        .find(|existing| existing.eq_ignore_ascii_case("cookie"))
+        .cloned()
+    {
+        let next = match headers.get(&existing_key) {
+            Some(current) if !current.trim().is_empty() => format!("{current}; {pair}"),
+            _ => pair,
+        };
+        headers.insert(existing_key, next);
+    } else {
+        headers.insert("Cookie".to_string(), pair);
+    }
 }

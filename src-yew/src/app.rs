@@ -211,7 +211,7 @@ pub fn app() -> Html {
                                             return;
                                         };
                                         let new_index = tree_state.servers.len();
-                                        tree_state.dispatch(TreeAction::AddServer { label: url });
+                                        tree_state.dispatch(TreeAction::AddServer { url });
                                         tree_state.dispatch(TreeAction::SetSelectedServer { index: new_index });
                                         if tab_state.tabs.is_empty() {
                                             tab_state.dispatch(TabAction::AddTab);

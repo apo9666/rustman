@@ -189,6 +189,12 @@ body,
   height: 30px;
 }
 
+.modal-textarea {
+  width: 100%;
+  min-height: 80px;
+  resize: vertical;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

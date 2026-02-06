@@ -15,6 +15,7 @@ serde_json = "1"
 serde_yaml = "0.9"
 url = "2"
 http = "0.2"
+base64 = "0.22"
 web-sys = { version = "0.3", features = [
   "Document",
   "Element",

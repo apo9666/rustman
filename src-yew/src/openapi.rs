@@ -3,9 +3,12 @@ use std::collections::{BTreeSet, HashSet};
 use serde_json::{json, Map, Value};
 use url::Url;
 
-use crate::state::{Header, MethodEnum, Param, TabContent, TreeNode};
+use crate::state::{
+    ApiKeyLocation, Header, MethodEnum, OAuth2Flow, OAuthScope, Param, ServerAuth, ServerEntry,
+    TabContent, TreeNode,
+};
 
-pub fn build_tree_from_openapi(text: &str) -> Result<(TreeNode, Vec<String>), String> {
+pub fn build_tree_from_openapi(text: &str) -> Result<(TreeNode, Vec<ServerEntry>), String> {
     let yaml: serde_yaml::Value =
         serde_yaml::from_str(text).map_err(|err| format!("YAML parse error: {err}"))?;
     let json: Value = serde_json::to_value(yaml)
@@ -29,15 +32,30 @@ pub fn build_tree_from_openapi(text: &str) -> Result<(TreeNode, Vec<String>), St
         .cloned()
         .unwrap_or_default();
 
-    let server_list: Vec<String> = servers
+    let default_auth = auth_from_openapi_security(&json);
+
+    let server_list: Vec<ServerEntry> = servers
         .iter()
-        .filter_map(|server| server.get("url").and_then(|value| value.as_str()))
-        .map(|value| value.to_string())
+        .filter_map(|server| {
+            let url = server.get("url").and_then(|value| value.as_str())?;
+            let auth = server
+                .get("x-rustman-auth")
+                .and_then(|value| auth_from_extension(value))
+                .or_else(|| default_auth.clone())
+                .unwrap_or(ServerAuth::None);
+            Some(ServerEntry {
+                url: url.to_string(),
+                auth,
+            })
+        })
         .collect();
 
     let mut servers = server_list;
     if servers.is_empty() && !paths.is_empty() {
-        servers.push("http://localhost".to_string());
+        servers.push(ServerEntry {
+            url: "http://localhost".to_string(),
+            auth: default_auth.unwrap_or(ServerAuth::None),
+        });
     }
 
     let mut tag_map: std::collections::BTreeMap<String, Vec<TreeNode>> =
@@ -102,7 +120,10 @@ pub fn build_tree_from_openapi(text: &str) -> Result<(TreeNode, Vec<String>), St
     ))
 }
 
-pub fn build_openapi_from_tree(root: &TreeNode, servers: &[String]) -> Result<String, String> {
+pub fn build_openapi_from_tree(
+    root: &TreeNode,
+    servers: &[ServerEntry],
+) -> Result<String, String> {
     build_openapi_from_tree_nodes(root, servers)
 }
 
@@ -387,12 +408,14 @@ fn extract_path_params(path: &str) -> Vec<Param> {
     params
 }
 
-fn build_openapi_from_tree_nodes(root: &TreeNode, servers: &[String]) -> Result<String, String> {
+fn build_openapi_from_tree_nodes(
+    root: &TreeNode,
+    servers: &[ServerEntry],
+) -> Result<String, String> {
     if root.children.is_empty() {
         return Err("Nenhuma request para exportar.".to_string());
     }
 
-    let mut servers_set = BTreeSet::new();
     let mut tag_names = BTreeSet::new();
     let mut paths: Map<String, Value> = Map::new();
     let mut seen = HashSet::new();
@@ -434,10 +457,6 @@ fn build_openapi_from_tree_nodes(root: &TreeNode, servers: &[String]) -> Result<
         }
     };
 
-    for server in servers.iter().filter(|value| !value.trim().is_empty()) {
-        servers_set.insert(server.clone());
-    }
-
     for node in &root.children {
         if let Some(content) = node.content.as_ref() {
             push_operation(node, content, None);
@@ -457,9 +476,10 @@ fn build_openapi_from_tree_nodes(root: &TreeNode, servers: &[String]) -> Result<
         return Err("Nenhuma request válida para exportar.".to_string());
     }
 
-    let server_list: Vec<Value> = servers_set
-        .into_iter()
-        .map(|url| json!({ "url": url }))
+    let server_list: Vec<Value> = servers
+        .iter()
+        .filter(|server| !server.url.trim().is_empty())
+        .map(server_to_value)
         .collect();
 
     let title = if root.label == "Root" {
@@ -468,18 +488,56 @@ fn build_openapi_from_tree_nodes(root: &TreeNode, servers: &[String]) -> Result<
         root.label.clone()
     };
 
-    let doc = json!({
-        "openapi": "3.0.3",
-        "info": {
+    let security_schemes = collect_security_schemes(servers);
+    let (components_value, security_value) = if security_schemes.is_empty() {
+        (None, None)
+    } else {
+        let mut schemes_map = Map::new();
+        for (name, scheme, _) in security_schemes.iter() {
+            schemes_map.insert(name.clone(), scheme.clone());
+        }
+        let components = json!({
+            "securitySchemes": Value::Object(schemes_map),
+        });
+
+        let security = if security_schemes.len() == 1 {
+            let (name, _, auth) = &security_schemes[0];
+            Some(Value::Array(vec![security_requirement(name, auth)]))
+        } else {
+            None
+        };
+
+        (Some(components), security)
+    };
+
+    let mut doc = Map::new();
+    doc.insert("openapi".to_string(), Value::String("3.0.3".to_string()));
+    doc.insert(
+        "info".to_string(),
+        json!({
             "title": title,
             "version": "1.0.0",
-        },
-        "servers": server_list,
-        "tags": tag_names.into_iter().map(|name| json!({ "name": name })).collect::<Vec<_>>(),
-        "paths": Value::Object(paths),
-    });
+        }),
+    );
+    doc.insert("servers".to_string(), Value::Array(server_list));
+    doc.insert(
+        "tags".to_string(),
+        Value::Array(
+            tag_names
+                .into_iter()
+                .map(|name| json!({ "name": name }))
+                .collect(),
+        ),
+    );
+    doc.insert("paths".to_string(), Value::Object(paths));
+    if let Some(components) = components_value {
+        doc.insert("components".to_string(), components);
+    }
+    if let Some(security) = security_value {
+        doc.insert("security".to_string(), security);
+    }
 
-    serde_yaml::to_string(&doc).map_err(|err| err.to_string())
+    serde_yaml::to_string(&Value::Object(doc)).map_err(|err| err.to_string())
 }
 
 fn build_parameters(content: &TabContent) -> Vec<Value> {
@@ -652,4 +710,386 @@ fn normalize_path(path: &str) -> String {
     } else {
         format!("/{}", trimmed)
     }
+}
+
+fn server_to_value(server: &ServerEntry) -> Value {
+    let mut map = Map::new();
+    map.insert("url".to_string(), Value::String(server.url.clone()));
+    if let Some(auth) = auth_to_extension(&server.auth) {
+        map.insert("x-rustman-auth".to_string(), auth);
+    }
+    Value::Object(map)
+}
+
+fn auth_to_extension(auth: &ServerAuth) -> Option<Value> {
+    match auth {
+        ServerAuth::None => None,
+        ServerAuth::ApiKey {
+            name,
+            location,
+            value,
+        } => Some(json!({
+            "type": "apiKey",
+            "name": name,
+            "in": location.as_str(),
+            "value": value,
+        })),
+        ServerAuth::HttpBasic { username, password } => Some(json!({
+            "type": "http",
+            "scheme": "basic",
+            "username": username,
+            "password": password,
+        })),
+        ServerAuth::HttpBearer {
+            token,
+            bearer_format,
+        } => Some(json!({
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": bearer_format,
+            "token": token,
+        })),
+        ServerAuth::OAuth2 {
+            flow,
+            auth_url,
+            token_url,
+            refresh_url,
+            scopes,
+            access_token,
+        } => {
+            let scopes_value: Map<String, Value> = scopes
+                .iter()
+                .map(|scope| (scope.name.clone(), Value::String(scope.description.clone())))
+                .collect();
+            Some(json!({
+                "type": "oauth2",
+                "flow": flow.as_str(),
+                "authorizationUrl": auth_url,
+                "tokenUrl": token_url,
+                "refreshUrl": refresh_url,
+                "scopes": Value::Object(scopes_value),
+                "accessToken": access_token,
+            }))
+        }
+        ServerAuth::OpenIdConnect { url, access_token } => Some(json!({
+            "type": "openIdConnect",
+            "openIdConnectUrl": url,
+            "accessToken": access_token,
+        })),
+    }
+}
+
+fn auth_from_extension(value: &Value) -> Option<ServerAuth> {
+    let obj = value.as_object()?;
+    let kind = obj.get("type").and_then(|value| value.as_str())?;
+    match kind {
+        "apiKey" => {
+            let name = obj
+                .get("name")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string();
+            let location = obj
+                .get("in")
+                .and_then(|value| value.as_str())
+                .and_then(ApiKeyLocation::from_str)
+                .unwrap_or(ApiKeyLocation::Header);
+            let value = obj
+                .get("value")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(ServerAuth::ApiKey {
+                name,
+                location,
+                value,
+            })
+        }
+        "http" => {
+            let scheme = obj
+                .get("scheme")
+                .and_then(|value| value.as_str())
+                .unwrap_or("bearer");
+            match scheme {
+                "basic" => Some(ServerAuth::HttpBasic {
+                    username: obj
+                        .get("username")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    password: obj
+                        .get("password")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                }),
+                _ => Some(ServerAuth::HttpBearer {
+                    token: obj
+                        .get("token")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    bearer_format: obj
+                        .get("bearerFormat")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                }),
+            }
+        }
+        "oauth2" => {
+            let flow = obj
+                .get("flow")
+                .and_then(|value| value.as_str())
+                .and_then(OAuth2Flow::from_str)
+                .unwrap_or(OAuth2Flow::AuthorizationCode);
+            let scopes = obj
+                .get("scopes")
+                .and_then(|value| value.as_object())
+                .map(|map| {
+                    map.iter()
+                        .map(|(name, description)| OAuthScope {
+                            name: name.clone(),
+                            description: description.as_str().unwrap_or("").to_string(),
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            Some(ServerAuth::OAuth2 {
+                flow,
+                auth_url: obj
+                    .get("authorizationUrl")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                token_url: obj
+                    .get("tokenUrl")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                refresh_url: obj
+                    .get("refreshUrl")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                scopes,
+                access_token: obj
+                    .get("accessToken")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            })
+        }
+        "openIdConnect" => Some(ServerAuth::OpenIdConnect {
+            url: obj
+                .get("openIdConnectUrl")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
+            access_token: obj
+                .get("accessToken")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
+        }),
+        _ => None,
+    }
+}
+
+fn auth_from_openapi_security(root: &Value) -> Option<ServerAuth> {
+    let security = root.get("security").and_then(|value| value.as_array())?;
+    let requirement = security.first()?.as_object()?;
+    let scheme_name = requirement.keys().next()?;
+    let schemes = root
+        .pointer("/components/securitySchemes")
+        .and_then(|value| value.as_object())?;
+    let scheme = schemes.get(scheme_name)?;
+    auth_from_security_scheme(scheme)
+}
+
+fn auth_from_security_scheme(value: &Value) -> Option<ServerAuth> {
+    let obj = value.as_object()?;
+    let kind = obj.get("type").and_then(|value| value.as_str())?;
+    match kind {
+        "apiKey" => {
+            let name = obj
+                .get("name")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string();
+            let location = obj
+                .get("in")
+                .and_then(|value| value.as_str())
+                .and_then(ApiKeyLocation::from_str)
+                .unwrap_or(ApiKeyLocation::Header);
+            Some(ServerAuth::ApiKey {
+                name,
+                location,
+                value: String::new(),
+            })
+        }
+        "http" => {
+            let scheme = obj
+                .get("scheme")
+                .and_then(|value| value.as_str())
+                .unwrap_or("bearer");
+            match scheme {
+                "basic" => Some(ServerAuth::HttpBasic {
+                    username: String::new(),
+                    password: String::new(),
+                }),
+                _ => Some(ServerAuth::HttpBearer {
+                    token: String::new(),
+                    bearer_format: obj
+                        .get("bearerFormat")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                }),
+            }
+        }
+        "oauth2" => {
+            let flows = obj.get("flows").and_then(|value| value.as_object())?;
+            let preferred = ["authorizationCode", "implicit", "password", "clientCredentials"];
+            let (flow_name, flow_value) = preferred
+                .iter()
+                .find_map(|name| flows.get(*name).map(|value| (*name, value)))
+                .or_else(|| flows.iter().next().map(|(name, value)| (name.as_str(), value)))?;
+
+            let flow = OAuth2Flow::from_str(flow_name)
+                .unwrap_or(OAuth2Flow::AuthorizationCode);
+            let flow_obj = flow_value.as_object().cloned().unwrap_or_default();
+            let scopes = flow_obj
+                .get("scopes")
+                .and_then(|value| value.as_object())
+                .map(|map| {
+                    map.iter()
+                        .map(|(name, description)| OAuthScope {
+                            name: name.clone(),
+                            description: description.as_str().unwrap_or("").to_string(),
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            Some(ServerAuth::OAuth2 {
+                flow,
+                auth_url: flow_obj
+                    .get("authorizationUrl")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                token_url: flow_obj
+                    .get("tokenUrl")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                refresh_url: flow_obj
+                    .get("refreshUrl")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                scopes,
+                access_token: String::new(),
+            })
+        }
+        "openIdConnect" => Some(ServerAuth::OpenIdConnect {
+            url: obj
+                .get("openIdConnectUrl")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
+            access_token: String::new(),
+        }),
+        _ => None,
+    }
+}
+
+fn auth_to_security_scheme(auth: &ServerAuth) -> Option<Value> {
+    match auth {
+        ServerAuth::None => None,
+        ServerAuth::ApiKey { name, location, .. } => Some(json!({
+            "type": "apiKey",
+            "name": name,
+            "in": location.as_str(),
+        })),
+        ServerAuth::HttpBasic { .. } => Some(json!({
+            "type": "http",
+            "scheme": "basic",
+        })),
+        ServerAuth::HttpBearer { bearer_format, .. } => {
+            let mut map = Map::new();
+            map.insert("type".to_string(), Value::String("http".to_string()));
+            map.insert("scheme".to_string(), Value::String("bearer".to_string()));
+            if !bearer_format.trim().is_empty() {
+                map.insert(
+                    "bearerFormat".to_string(),
+                    Value::String(bearer_format.clone()),
+                );
+            }
+            Some(Value::Object(map))
+        }
+        ServerAuth::OAuth2 {
+            flow,
+            auth_url,
+            token_url,
+            refresh_url,
+            scopes,
+            ..
+        } => {
+            let scopes_value: Map<String, Value> = scopes
+                .iter()
+                .map(|scope| (scope.name.clone(), Value::String(scope.description.clone())))
+                .collect();
+            let mut flow_map = Map::new();
+            flow_map.insert("scopes".to_string(), Value::Object(scopes_value));
+            if !auth_url.trim().is_empty() {
+                flow_map.insert("authorizationUrl".to_string(), Value::String(auth_url.clone()));
+            }
+            if !token_url.trim().is_empty() {
+                flow_map.insert("tokenUrl".to_string(), Value::String(token_url.clone()));
+            }
+            if !refresh_url.trim().is_empty() {
+                flow_map.insert("refreshUrl".to_string(), Value::String(refresh_url.clone()));
+            }
+            let mut flows = Map::new();
+            flows.insert(flow.as_str().to_string(), Value::Object(flow_map));
+            Some(json!({
+                "type": "oauth2",
+                "flows": Value::Object(flows),
+            }))
+        }
+        ServerAuth::OpenIdConnect { url, .. } => Some(json!({
+            "type": "openIdConnect",
+            "openIdConnectUrl": url,
+        })),
+    }
+}
+
+fn collect_security_schemes(servers: &[ServerEntry]) -> Vec<(String, Value, ServerAuth)> {
+    let mut schemes = Vec::new();
+    for server in servers {
+        let Some(scheme) = auth_to_security_scheme(&server.auth) else {
+            continue;
+        };
+        if schemes.iter().any(|(_, existing, _)| *existing == scheme) {
+            continue;
+        }
+        let name = format!("serverAuth{}", schemes.len() + 1);
+        schemes.push((name, scheme, server.auth.clone()));
+    }
+    schemes
+}
+
+fn security_requirement(name: &str, auth: &ServerAuth) -> Value {
+    let scopes = match auth {
+        ServerAuth::OAuth2 { scopes, .. } => scopes
+            .iter()
+            .map(|scope| Value::String(scope.name.clone()))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let mut map = Map::new();
+    map.insert(name.to_string(), Value::Array(scopes));
+    Value::Object(map)
 }

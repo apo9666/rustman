@@ -212,7 +212,73 @@ body,
   line-height: 1.5;
   white-space: pre-wrap;
   overflow: auto;
-  max-height: 60vh;
+  flex: 1;
+  min-height: 0;
+}
+
+.debug-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 60vh;
+}
+
+.debug-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  height: 100%;
+}
+
+.debug-top {
+  display: flex;
+  flex-direction: column;
+  min-height: 160px;
+}
+
+.debug-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 160px;
+  flex: 1;
+}
+
+.debug-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.debug-panel-flex {
+  flex: 0 0 260px;
+  min-width: 200px;
+  max-width: 420px;
+}
+
+.debug-resize-vert {
+  width: 6px;
+  cursor: col-resize;
+  background: #27272a;
+  border-left: 1px solid #3f3f46;
+  border-right: 1px solid #3f3f46;
+}
+
+.debug-resize-vert:hover {
+  background: #3f3f46;
+}
+
+.debug-resize-horiz {
+  height: 6px;
+  cursor: row-resize;
+  background: #27272a;
+  border-top: 1px solid #3f3f46;
+  border-bottom: 1px solid #3f3f46;
+}
+
+.debug-resize-horiz:hover {
+  background: #3f3f46;
 }
 
 .modal-actions {

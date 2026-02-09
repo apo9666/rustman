@@ -743,11 +743,15 @@ fn auth_to_extension(auth: &ServerAuth) -> Option<Value> {
         ServerAuth::HttpBearer {
             token,
             bearer_format,
+            auto_update,
+            token_path,
         } => Some(json!({
             "type": "http",
             "scheme": "bearer",
             "bearerFormat": bearer_format,
             "token": token,
+            "autoUpdate": auto_update,
+            "tokenPath": token_path,
         })),
         ServerAuth::OAuth2 {
             flow,
@@ -833,6 +837,15 @@ fn auth_from_extension(value: &Value) -> Option<ServerAuth> {
                         .get("bearerFormat")
                         .and_then(|value| value.as_str())
                         .unwrap_or("")
+                        .to_string(),
+                    auto_update: obj
+                        .get("autoUpdate")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(true),
+                    token_path: obj
+                        .get("tokenPath")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("access_token")
                         .to_string(),
                 }),
             }
@@ -945,6 +958,8 @@ fn auth_from_security_scheme(value: &Value) -> Option<ServerAuth> {
                         .and_then(|value| value.as_str())
                         .unwrap_or("")
                         .to_string(),
+                    auto_update: true,
+                    token_path: "access_token".to_string(),
                 }),
             }
         }

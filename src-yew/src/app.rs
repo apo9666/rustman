@@ -7,6 +7,7 @@ use yew::prelude::*;
 
 use crate::components::section::Section;
 use crate::components::side::Side;
+use crate::components::tools::ToolsPage;
 use crate::openapi::{build_openapi_from_tree, build_tree_from_openapi};
 use crate::state::{Tab, TabAction, TabState, TreeAction, TreeNode, TreeState};
 use crate::tauri_api;
@@ -20,6 +21,7 @@ pub fn app() -> Html {
     let sidebar_width = use_state(|| 280.0);
     let dragging = use_state(|| false);
     let drag_state = use_mut_ref(|| DragState::default());
+    let location_hash = use_state(current_hash);
     let save_dialog_open = use_state(|| false);
     let save_tag = use_state(String::new);
     let server_dialog = use_state(|| None::<ServerDialogMode>);
@@ -30,6 +32,17 @@ pub fn app() -> Html {
     {
         let mut state = tree_state_ref.borrow_mut();
         *state = tree_state.clone();
+    }
+
+    {
+        let location_hash = location_hash.clone();
+        use_effect_with((), move |_| {
+            let window = web_sys::window().expect("window not available");
+            let listener = EventListener::new(&window, "hashchange", move |_| {
+                location_hash.set(current_hash());
+            });
+            Box::new(move || drop(listener)) as Box<dyn FnOnce()>
+        });
     }
 
     let open_save_dialog = {
@@ -172,6 +185,10 @@ pub fn app() -> Html {
             server_dialog.set(Some(ServerDialogMode::AddTag));
         })
     };
+
+    if is_tools_hash(&location_hash) {
+        return html! { <ToolsPage /> };
+    }
 
     html! {
         <ContextProvider<UseReducerHandle<TreeState>> context={tree_state.clone()}>
@@ -770,6 +787,16 @@ fn show_confirm(message: &str) -> bool {
     web_sys::window()
         .and_then(|window| window.confirm_with_message(message).ok())
         .unwrap_or(false)
+}
+
+fn current_hash() -> String {
+    web_sys::window()
+        .and_then(|window| window.location().hash().ok())
+        .unwrap_or_default()
+}
+
+fn is_tools_hash(hash: &str) -> bool {
+    matches!(hash, "#tools" | "#crypto")
 }
 
 fn is_exists_error(message: &str) -> bool {

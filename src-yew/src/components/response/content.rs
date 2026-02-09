@@ -218,6 +218,13 @@ pub fn response_content(props: &ResponseContentProps) -> Html {
         })
     };
 
+    let on_tools = Callback::from(move |_| {
+        spawn_local(async move {
+            let payload = Object::new();
+            let _ = tauri_api::invoke("open_tools", payload.into()).await;
+        });
+    });
+
     html! {
         <div class="response">
             <div class="request-title">
@@ -232,6 +239,7 @@ pub fn response_content(props: &ResponseContentProps) -> Html {
                 <div class="request-actions">
                     <button class="button secondary" onclick={on_preview}>{ "Preview" }</button>
                     <button class="button secondary" onclick={on_debug}>{ "Debug" }</button>
+                    <button class="button secondary" onclick={on_tools}>{ "Tools" }</button>
                     <button class="button secondary" onclick={on_format}>{ "Format" }</button>
                 </div>
             </div>

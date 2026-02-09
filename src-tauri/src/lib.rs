@@ -56,6 +56,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             send_request,
             open_preview,
+            open_tools,
             set_window_title
         ])
         .run(tauri::generate_context!())
@@ -175,6 +176,36 @@ fn open_preview(app: AppHandle, html: String) -> Result<(), String> {
         .map_err(|err| err.to_string())?;
 
     let _ = window.eval(script.as_str());
+
+    Ok(())
+}
+
+#[tauri::command]
+fn open_tools(app: AppHandle) -> Result<(), String> {
+    let set_hash_script = "window.location.hash = '#tools';";
+    if let Some(window) = app.get_webview_window("tools") {
+        let _ = window.eval(set_hash_script);
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    let window = WebviewWindowBuilder::new(
+        &app,
+        "tools",
+        WebviewUrl::App("index.html#tools".into()),
+    )
+        .title("Tools")
+        .inner_size(900.0, 700.0)
+        .on_page_load(move |window, payload| {
+            if matches!(payload.event(), PageLoadEvent::Finished) {
+                let _ = window.eval(set_hash_script);
+            }
+        })
+        .build()
+        .map_err(|err| err.to_string())?;
+
+    let _ = window.eval(set_hash_script);
 
     Ok(())
 }

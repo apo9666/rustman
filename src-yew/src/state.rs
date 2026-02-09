@@ -146,6 +146,8 @@ pub enum ServerAuth {
     HttpBearer {
         token: String,
         bearer_format: String,
+        auto_update: bool,
+        token_path: String,
     },
     OAuth2 {
         flow: OAuth2Flow,

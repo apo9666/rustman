@@ -4,6 +4,7 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use js_sys::{Date, Object, Reflect};
 use serde::Serialize;
+use serde_json::Value;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
@@ -14,7 +15,7 @@ use url::Url;
 
 use crate::state::{
     ApiKeyLocation, Header, MethodEnum, Param, RequestDebugInfo, Response, ServerAuth,
-    ServerEntry, TabAction, TabContent, TabState, TreeState,
+    ServerEntry, TabAction, TabContent, TabState, TreeAction, TreeState,
 };
 use crate::tauri_api;
 use crate::utils::{params_from_url, path_params_from_url};
@@ -42,6 +43,7 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
         .selected_server
         .and_then(|index| tree_state.servers.get(index))
         .cloned();
+    let selected_server_index = tree_state.selected_server;
 
     let on_method_change = {
         let tab_state = tab_state.clone();
@@ -96,7 +98,9 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
 
     let on_submit = {
         let tab_state = tab_state.clone();
+        let tree_state = tree_state.clone();
         let selected_server = selected_server.clone();
+        let selected_server_index = selected_server_index;
         let is_sending = is_sending.clone();
         Callback::from(move |event: SubmitEvent| {
             event.prevent_default();
@@ -105,7 +109,9 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
             }
             is_sending.set(true);
             let tab_state = tab_state.clone();
+            let tree_state = tree_state.clone();
             let selected_server = selected_server.clone();
+            let selected_server_index = selected_server_index;
             let is_sending = is_sending.clone();
             spawn_local(async move {
                 let Some(tab) = tab_state.tabs.get(index).cloned() else {
@@ -135,6 +141,18 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
                             }
                         }
                     };
+                if let Some(next_auth) = extract_bearer_auth_update(
+                    selected_server.as_ref(),
+                    &response.data,
+                ) {
+                    if let Some(server_index) = selected_server_index {
+                        tree_state.dispatch(TreeAction::UpdateServerAuth {
+                            index: server_index,
+                            auth: next_auth,
+                        });
+                    }
+                }
+
                 tab_state.dispatch(TabAction::SetResponse { index, response });
                 is_sending.set(false);
             });
@@ -238,11 +256,20 @@ pub(crate) fn authorization_header_value(auth: &ServerAuth) -> Option<String> {
             let token = STANDARD.encode(format!("{username}:{password}"));
             Some(format!("Basic {token}"))
         }
-        ServerAuth::HttpBearer { token, .. } => {
+        ServerAuth::HttpBearer {
+            token,
+            bearer_format,
+            ..
+        } => {
             if token.trim().is_empty() {
                 None
             } else {
-                Some(format!("Bearer {token}"))
+                let scheme = if bearer_format.trim().is_empty() {
+                    "Bearer"
+                } else {
+                    bearer_format.trim()
+                };
+                Some(format!("{scheme} {token}"))
             }
         }
         ServerAuth::OAuth2 { access_token, .. } => {
@@ -557,9 +584,18 @@ fn apply_auth(
             set_header(headers, "Authorization", format!("Basic {token}"));
             Ok(url.to_string())
         }
-        ServerAuth::HttpBearer { token, .. } => {
+        ServerAuth::HttpBearer {
+            token,
+            bearer_format,
+            ..
+        } => {
             if !token.trim().is_empty() {
-                set_header(headers, "Authorization", format!("Bearer {token}"));
+                let scheme = if bearer_format.trim().is_empty() {
+                    "Bearer"
+                } else {
+                    bearer_format.trim()
+                };
+                set_header(headers, "Authorization", format!("{scheme} {token}"));
             }
             Ok(url.to_string())
         }
@@ -576,6 +612,81 @@ fn apply_auth(
             Ok(url.to_string())
         }
     }
+}
+
+fn extract_bearer_auth_update(
+    server: Option<&ServerEntry>,
+    response_body: &str,
+) -> Option<ServerAuth> {
+    let server = server?;
+    let ServerAuth::HttpBearer {
+        token,
+        bearer_format,
+        auto_update,
+        token_path,
+    } = &server.auth
+    else {
+        return None;
+    };
+
+    if !*auto_update {
+        return None;
+    }
+
+    let next_token = extract_json_token(response_body, token_path)?;
+    if next_token.trim().is_empty() || next_token == *token {
+        return None;
+    }
+
+    Some(ServerAuth::HttpBearer {
+        token: next_token,
+        bearer_format: bearer_format.clone(),
+        auto_update: *auto_update,
+        token_path: token_path.clone(),
+    })
+}
+
+fn extract_json_token(body: &str, path: &str) -> Option<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let value: Value = serde_json::from_str(body).ok()?;
+    let parts = parse_token_path(trimmed);
+    if parts.is_empty() {
+        return None;
+    }
+    let mut current = &value;
+    for part in parts {
+        if let Some(array) = current.as_array() {
+            if let Ok(index) = part.parse::<usize>() {
+                current = array.get(index)?;
+                continue;
+            }
+        }
+        let Some(obj) = current.as_object() else {
+            return None;
+        };
+        current = obj.get(part)?;
+    }
+
+    match current {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        Value::Bool(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+fn parse_token_path(path: &str) -> Vec<&str> {
+    let trimmed = path.trim();
+    let trimmed = trimmed.strip_prefix("$.").unwrap_or(trimmed);
+    let trimmed = trimmed.strip_prefix('$').unwrap_or(trimmed);
+    trimmed
+        .split('.')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect()
 }
 
 fn append_query_param(url: &str, name: &str, value: &str) -> Result<String, String> {

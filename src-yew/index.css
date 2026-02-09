@@ -184,6 +184,28 @@ body,
   color: #a1a1aa;
 }
 
+.modal-label-inline {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.modal-label-inline span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modal-checkbox {
+  margin-right: 8px;
+  width: auto;
+  height: auto;
+  cursor: pointer;
+}
+
 .modal-input {
   width: 100%;
   height: 30px;

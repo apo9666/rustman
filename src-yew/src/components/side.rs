@@ -362,6 +362,22 @@ pub fn side(props: &SideProps) -> Html {
                         auth_form.set(next);
                     })
                 };
+                let on_bearer_auto_update = {
+                    let auth_form = auth_form.clone();
+                    Callback::from(move |event: Event| {
+                        let mut next = (*auth_form).clone();
+                        next.bearer_auto_update = checkbox_value(&event);
+                        auth_form.set(next);
+                    })
+                };
+                let on_bearer_token_path = {
+                    let auth_form = auth_form.clone();
+                    Callback::from(move |event: InputEvent| {
+                        let mut next = (*auth_form).clone();
+                        next.bearer_token_path = input_value(&event);
+                        auth_form.set(next);
+                    })
+                };
 
                 let on_bearer_format = {
                     let auth_form = auth_form.clone();
@@ -496,6 +512,22 @@ pub fn side(props: &SideProps) -> Html {
                                         <>
                                             <label class="modal-label">{ "Token" }</label>
                                             <input class="modal-input" type="password" value={auth_form_value.bearer_token.clone()} oninput={on_bearer_token} />
+                                            <label class="modal-label modal-label-inline">
+                                                <input
+                                                    class="modal-checkbox"
+                                                    type="checkbox"
+                                                    checked={auth_form_value.bearer_auto_update}
+                                                    onchange={on_bearer_auto_update}
+                                                />
+                                                <span>{ "Auto update token path" }</span>
+                                            </label>
+                                            <input
+                                                class="modal-input"
+                                                value={auth_form_value.bearer_token_path.clone()}
+                                                placeholder="access_token"
+                                                oninput={on_bearer_token_path}
+                                                disabled={!auth_form_value.bearer_auto_update}
+                                            />
                                             <label class="modal-label">{ "Bearer format" }</label>
                                             <input class="modal-input" value={auth_form_value.bearer_format.clone()} oninput={on_bearer_format} />
                                         </>
@@ -556,6 +588,14 @@ fn select_value(event: &Event) -> String {
         .unwrap_or_default()
 }
 
+fn checkbox_value(event: &Event) -> bool {
+    event
+        .target()
+        .and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
+        .map(|input| input.checked())
+        .unwrap_or(false)
+}
+
 fn input_value(event: &InputEvent) -> String {
     event
         .target()
@@ -582,6 +622,8 @@ struct AuthForm {
     basic_password: String,
     bearer_token: String,
     bearer_format: String,
+    bearer_auto_update: bool,
+    bearer_token_path: String,
     oauth_flow: String,
     oauth_auth_url: String,
     oauth_token_url: String,
@@ -603,6 +645,8 @@ impl Default for AuthForm {
             basic_password: String::new(),
             bearer_token: String::new(),
             bearer_format: "Bearer".to_string(),
+            bearer_auto_update: true,
+            bearer_token_path: "access_token".to_string(),
             oauth_flow: "authorizationCode".to_string(),
             oauth_auth_url: String::new(),
             oauth_token_url: String::new(),
@@ -639,6 +683,8 @@ impl AuthForm {
             ServerAuth::HttpBearer {
                 token,
                 bearer_format,
+                auto_update,
+                token_path,
             } => Self {
                 kind: "httpBearer".to_string(),
                 bearer_token: token.clone(),
@@ -646,6 +692,12 @@ impl AuthForm {
                     "Bearer".to_string()
                 } else {
                     bearer_format.clone()
+                },
+                bearer_auto_update: *auto_update,
+                bearer_token_path: if token_path.trim().is_empty() {
+                    "access_token".to_string()
+                } else {
+                    token_path.clone()
                 },
                 ..Self::default()
             },
@@ -693,6 +745,12 @@ impl AuthForm {
                     "Bearer".to_string()
                 } else {
                     self.bearer_format.clone()
+                },
+                auto_update: self.bearer_auto_update,
+                token_path: if self.bearer_token_path.trim().is_empty() {
+                    "access_token".to_string()
+                } else {
+                    self.bearer_token_path.clone()
                 },
             },
             "oauth2" => ServerAuth::OAuth2 {

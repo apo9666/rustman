@@ -177,6 +177,25 @@ pub fn side(props: &SideProps) -> Html {
         })
     };
 
+    {
+        let tree_state = tree_state.clone();
+        let auth_dialog_open = auth_dialog_open.clone();
+        let auth_form = auth_form.clone();
+        let auth_server_index = auth_server_index.clone();
+        let servers = servers.clone();
+        use_effect_with(tree_state.pending_auth, move |pending_auth| {
+            if let Some(index) = *pending_auth {
+                if let Some(server) = servers.get(index) {
+                    auth_form.set(AuthForm::from_auth(&server.auth));
+                    auth_server_index.set(Some(index));
+                    auth_dialog_open.set(true);
+                }
+                tree_state.dispatch(TreeAction::ClearPendingAuth);
+            }
+            || ()
+        });
+    }
+
     html! {
         <>
         <nav class="tree-panel">

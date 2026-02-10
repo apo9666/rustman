@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
 use gloo::events::EventListener;
+use http::StatusCode;
 use js_sys::{Object, Reflect};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
@@ -40,6 +41,7 @@ pub fn response_content(props: &ResponseContentProps) -> Html {
     let index = props.tab_index;
     let formatted = response.formatted;
     let duration_ms = response.duration_ms;
+    let status_label = status_label(response.status);
     let debug_open = use_state(|| false);
     let debug_ref = use_node_ref();
     let drag_vert = use_state(|| false);
@@ -230,8 +232,8 @@ pub fn response_content(props: &ResponseContentProps) -> Html {
             <div class="request-title">
                 <h1>{ "Response" }</h1>
                 {
-                    if let Some(duration) = duration_ms {
-                        html! { <span class="response-meta">{ format!("{duration} ms") }</span> }
+                    if let Some(meta) = build_response_meta(status_label.as_ref(), duration_ms) {
+                        html! { <span class="response-meta">{ meta }</span> }
                     } else {
                         html! {}
                     }
@@ -492,4 +494,31 @@ fn format_headers_map(headers: &HashMap<String, String>) -> String {
         text.push_str(&format!("  {}: {}\n", key, value));
     }
     text
+}
+
+fn status_label(status: u16) -> Option<String> {
+    if status == 0 {
+        return None;
+    }
+    let label = StatusCode::from_u16(status)
+        .ok()
+        .and_then(|code| code.canonical_reason().map(|reason| (code, reason)))
+        .map(|(code, reason)| format!("{} {}", code.as_u16(), reason))
+        .unwrap_or_else(|| status.to_string());
+    Some(label)
+}
+
+fn build_response_meta(status: Option<&String>, duration_ms: Option<u64>) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(status) = status {
+        parts.push(status.clone());
+    }
+    if let Some(duration) = duration_ms {
+        parts.push(format!("{duration} ms"));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" · "))
+    }
 }

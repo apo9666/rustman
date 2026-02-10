@@ -13,6 +13,7 @@ use yew::prelude::*;
 
 use url::Url;
 
+use crate::components::json_highlight::parse_json_value;
 use crate::state::{
     ApiKeyLocation, Header, MethodEnum, Param, RequestDebugInfo, Response, ServerAuth,
     ServerEntry, TabAction, TabContent, TabState, TreeAction, TreeState,
@@ -141,6 +142,7 @@ pub fn request_url(props: &RequestUrlProps) -> Html {
                             }
                         }
                     };
+                let response = format_response_data(response);
                 if let Some(next_auth) = extract_bearer_auth_update(
                     selected_server.as_ref(),
                     &response.data,
@@ -427,6 +429,16 @@ fn duration_ms(started_at: f64) -> u64 {
     } else {
         0
     }
+}
+
+fn format_response_data(mut response: Response) -> Response {
+    if let Some(parsed) = parse_json_value(&response.data) {
+        if let Ok(pretty) = serde_json::to_string_pretty(&parsed) {
+            response.data = pretty;
+            response.formatted = true;
+        }
+    }
+    response
 }
 
 fn build_request_url(content: &TabContent, server: Option<&ServerEntry>) -> Result<String, String> {

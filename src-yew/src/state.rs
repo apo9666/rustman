@@ -480,6 +480,7 @@ pub struct TreeState {
     pub pending_delete: Option<PendingDelete>,
     pub pending_move: Option<PendingMove>,
     pub selected_server: Option<usize>,
+    pub pending_auth: Option<usize>,
 }
 
 impl Default for TreeState {
@@ -496,6 +497,7 @@ impl Default for TreeState {
             pending_delete: None,
             pending_move: None,
             selected_server: None,
+            pending_auth: None,
         }
     }
 }
@@ -518,6 +520,8 @@ pub enum TreeAction {
     RemoveServer { index: usize },
     SetSelectedServer { index: usize },
     UpdateServerAuth { index: usize, auth: ServerAuth },
+    RequestAuth { index: usize },
+    ClearPendingAuth,
     SetTree { root: TreeNode, servers: Vec<ServerEntry> },
     AddChild { path: Vec<usize>, node: TreeNode },
     ReplaceNode { path: Vec<usize>, node: TreeNode },
@@ -565,6 +569,14 @@ impl Reducible for TreeState {
                     server.auth = auth;
                 }
             }
+            TreeAction::RequestAuth { index } => {
+                if index < state.servers.len() {
+                    state.pending_auth = Some(index);
+                }
+            }
+            TreeAction::ClearPendingAuth => {
+                state.pending_auth = None;
+            }
             TreeAction::SetTree { root, servers } => {
                 state.root = root;
                 state.servers = servers;
@@ -576,6 +588,7 @@ impl Reducible for TreeState {
                 state.selected_path = None;
                 state.pending_move = None;
                 state.pending_delete = None;
+                state.pending_auth = None;
             }
             TreeAction::AddChild { path, node } => {
                 add_child(&mut state.root, &path, node);
